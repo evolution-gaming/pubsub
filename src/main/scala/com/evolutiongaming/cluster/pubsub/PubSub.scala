@@ -133,7 +133,7 @@ object PubSub {
 
     override def preStart() = {
       super.preStart()
-      pubSub subscribe[T] self
+      pubSub.subscribe[T](self)
     }
 
     def apply(msg: T, sender: ActorRef): Unit
@@ -170,7 +170,7 @@ object PubSub {
     def setup[T](pubSub: PubSub)(onMsg: (T, ActorRef) => Unit)(implicit topic: Topic[T]): SetupActor[In[T]] = ctx => {
       val log = ActorLog(ctx.system, Listener.getClass) prefixed topic.toString
 
-      pubSub subscribe[T] ctx.self
+      pubSub.subscribe[T](ctx.self)
 
       val behavior = Behavior.stateless[In[T]] {
         case Signal.Msg(msg, sender) => msg match {
@@ -179,7 +179,7 @@ object PubSub {
             case NonFatal(failure) => log.error(s"$topic: failure $failure", failure)
           }
         }
-        case Signal.PostStop         => pubSub unsubscribe ctx.self
+        case Signal.PostStop         => pubSub.unsubscribe(ctx.self)
         case _                       =>
       }
       (behavior, log)
