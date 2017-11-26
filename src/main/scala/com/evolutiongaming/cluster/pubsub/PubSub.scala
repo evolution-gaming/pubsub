@@ -156,7 +156,7 @@ object PubSub {
     private def onFailure(failure: Throwable) = log.error(failure, s"$topic: failure $failure")
 
     override def postStop() = {
-      pubSub unsubscribe[T] self
+      pubSub.unsubscribe[T](self)
       super.postStop()
     }
   }
