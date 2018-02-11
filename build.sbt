@@ -16,7 +16,7 @@ bintrayOrganization := Some("evolutiongaming")
 
 scalaVersion := "2.12.4"
 
-crossScalaVersions := Seq("2.12.4", "2.11.11")
+crossScalaVersions := Seq("2.12.4", "2.11.12")
 
 scalacOptions ++= Seq(
   "-encoding", "UTF-8",
