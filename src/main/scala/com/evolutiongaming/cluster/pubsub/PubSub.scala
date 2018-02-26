@@ -1,12 +1,11 @@
 package com.evolutiongaming.cluster.pubsub
 
-import akka.actor.{Actor, ActorLogging, ActorRef, ActorRefFactory, ActorSystem, Props, Terminated}
+import akka.actor.{Actor, ActorLogging, ActorRef, ActorRefFactory, ActorSystem, Props}
 import akka.cluster.Cluster
 import akka.cluster.pubsub.{DistributedPubSubMediatorSerializing, DistributedPubSubMediator => Mediator}
-import com.codahale.metrics.{Counter, MetricRegistry}
+import com.codahale.metrics.MetricRegistry
 import com.evolutiongaming.metrics.MetricName
 import com.evolutiongaming.safeakka.actor._
-import com.typesafe.scalalogging.LazyLogging
 
 import scala.reflect.ClassTag
 import scala.util.control.NonFatal
@@ -29,38 +28,29 @@ object PubSub {
   def apply(
     system: ActorSystem,
     registry: MetricRegistry,
-    name: String = "PubSub",
     serialize: String => Boolean = _ => false): PubSub = {
 
-    val props = this.props(system, registry, serialize)
-    val ref = system.actorOf(props, name)
-    new MeteredImpl(ref, registry)
-  }
-
-  def props(system: ActorSystem, registry: MetricRegistry, serialize: String => Boolean = _ => false): Props = {
-    val impl = if (system hasExtension Cluster) {
-      DistributedPubSubMediatorSerializing(system, serialize)
+    val ref = if (system hasExtension Cluster) {
+      DistributedPubSubMediatorSerializing(system, serialize, registry)
     } else {
       system.actorOf(LocalPubSub.props)
     }
-
-    val subscriptions = registry.counter("cluster.pubsub.subscriptions")
-    MeteredActor.props(impl, subscriptions)
+    val log = ActorLog(system, classOf[PubSub])
+    val pubSub = apply(ref, log)
+    apply(pubSub, registry)
   }
 
-
-  class Impl(pubSub: ActorRef) extends PubSub with LazyLogging {
+  def apply(pubSub: ActorRef, log: ActorLog): PubSub = new PubSub {
 
     def publish[T](msg: WithSender[T], sendToEachGroup: Boolean = false)(implicit topic: Topic[T]): Unit = {
-
       val publish = Mediator.Publish(topic.str, msg.msg, sendToEachGroup)
-      logger.debug(s"publish $publish")
+      log.debug(s"publish $publish")
       pubSub.tell(publish, msg.senderOrNot)
     }
 
     def subscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unit = {
       val subscribe = Mediator.Subscribe(topic.str, group, ref)
-      logger.debug(s"subscribe $subscribe")
+      log.debug(s"subscribe $subscribe")
       pubSub.tell(subscribe, ref)
     }
 
@@ -71,28 +61,46 @@ object PubSub {
 
     def unsubscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unit = {
       val unsubscribe = Mediator.Unsubscribe(topic.str, group, ref)
-      logger.debug(s"unsubscribe $unsubscribe")
+      log.debug(s"unsubscribe $unsubscribe")
       pubSub.tell(unsubscribe, ref)
     }
 
     def topics(sender: ActorRef): Unit = {
-      logger.debug(s"topics $sender")
+      log.debug(s"topics $sender")
       pubSub.tell(Mediator.GetTopics, sender)
     }
   }
 
-  class MeteredImpl(pubSub: ActorRef, registry: MetricRegistry) extends Impl(pubSub) {
+  def apply(pubSub: PubSub, registry: MetricRegistry): PubSub = new PubSub {
 
-    override def publish[T](msg: WithSender[T], sendToEachGroup: Boolean)(implicit topic: Topic[T]) = {
-
+    def publish[T](msg: WithSender[T], sendToEachGroup: Boolean)(implicit topic: Topic[T]): Unit = {
       val name = MetricName(topic.str)
-      registry.meter("cluster.pubsub.messages").mark()
-      registry.meter(s"cluster.pubsub.messages.$name").mark()
+      registry.meter(s"$name.publish").mark()
+      pubSub.publish(msg, sendToEachGroup)
+    }
 
-      super.publish(msg, sendToEachGroup)
+    def subscribe[T](ref: Sender, group: Option[String])(implicit topic: Topic[T]): Unit = {
+      val name = MetricName(topic.str)
+      registry.counter(s"$name.subscriptions").inc()
+      pubSub.subscribe(ref, group)
+    }
+
+    def subscribe[T](factory: ActorRefFactory)(f: (T, Sender) => Unit)(implicit topic: Topic[T]): Unit = {
+      val name = MetricName(topic.str)
+      registry.counter(s"$name.subscriptions").inc()
+      pubSub.subscribe(factory)(f)
+    }
+
+    def unsubscribe[T](ref: Sender, group: Option[String])(implicit topic: Topic[T]): Unit = {
+      val name = MetricName(topic.str)
+      registry.counter(s"$name.subscriptions").dec()
+      pubSub.unsubscribe(ref, group)
+    }
+
+    def topics(sender: Sender): Unit = {
+      pubSub.topics(sender)
     }
   }
-
 
   object Empty extends PubSub {
 
@@ -206,40 +214,6 @@ object PubSub {
     object In {
       case class Msg[T](msg: T) extends In[T]
       case class Ack(subscribe: Mediator.Subscribe) extends In[Nothing]
-    }
-  }
-
-  class MeteredActor(impl: ActorRef, subscriptionsCounter: Counter) extends Actor {
-
-    private var subscriptionCounts: Map[ActorRef, Int] = Map().withDefaultValue(0)
-
-    def receive = {
-      case x: Mediator.Publish =>
-        impl forward x
-
-      case x: Mediator.Subscribe =>
-        subscriptionsCounter.inc()
-        subscriptionCounts = subscriptionCounts.updated(x.ref, subscriptionCounts(x.ref) + 1)
-        context.watch(x.ref)
-        impl forward x
-
-      case x: Mediator.Unsubscribe =>
-        subscriptionsCounter.dec()
-        subscriptionCounts = subscriptionCounts.updated(x.ref, subscriptionCounts(x.ref) - 1)
-        impl forward x
-
-      case Terminated(ref) =>
-        subscriptionsCounter.dec(subscriptionCounts(ref).toLong)
-        subscriptionCounts -= ref
-        context unwatch ref
-
-      case x => impl forward x
-    }
-  }
-
-  object MeteredActor {
-    def props(impl: ActorRef, subscriptionsCounter: Counter): Props = {
-      Props(new MeteredActor(impl, subscriptionsCounter))
     }
   }
 }

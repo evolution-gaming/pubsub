@@ -7,13 +7,16 @@ import akka.cluster.pubsub.DistributedPubSubMediator.Internal.Topic
 import akka.cluster.pubsub.DistributedPubSubMediator.SendToAll
 import akka.dispatch.Dispatchers
 import akka.routing.RoutingLogic
-import akka.serialization.SerializationExtension
+import akka.serialization.{SerializationExtension, SerializerWithStringManifest}
 import akka.stream.scaladsl.{Sink, Source, SourceQueueWithComplete}
 import akka.stream.{ActorMaterializer, OverflowStrategy, QueueOfferResult}
+import com.codahale.metrics.MetricRegistry
+import com.evolutiongaming.metrics.MetricName
+import com.evolutiongaming.safeakka.actor.Sender
 
+import scala.compat.Platform
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future}
-import scala.util.control.NonFatal
 import scala.util.{Failure, Success}
 
 /**
@@ -23,22 +26,24 @@ import scala.util.{Failure, Success}
   */
 class DistributedPubSubMediatorSerializing(
   settings: DistributedPubSubSettings,
-  serialize: String => Boolean) extends DistributedPubSubMediator(settings)
+  serialize: String => Boolean,
+  metricRegistry: MetricRegistry) extends DistributedPubSubMediator(settings)
   with DistributedPubSubMediatorSerializing.StreamHelper {
 
   import DistributedPubSubMediatorSerializing._
   import context.dispatcher
 
   private val selfAddress = Cluster(context.system).selfAddress
-  private lazy val serialization = SerializationExtension(context.system)
+  private val serialization = SerializationExtension(context.system)
   private lazy val queue = {
     val strategy = OverflowStrategy.backpressure
-    val maxSubstreams = Parallelism * 3
+    val maxSubstreams = Parallelism
+    val bufferSize = Int.MaxValue
     Source
-      .queue[SerializationTask](Int.MaxValue, strategy)
+      .queue[SerializationTask](bufferSize, strategy)
       .groupBy(maxSubstreams, elem => math.abs(elem.topic.hashCode) % maxSubstreams)
-      .buffer(Int.MaxValue, strategy)
-      .mapAsync(Parallelism)(x => Future(x.serialize() -> x.sender))
+      .buffer(bufferSize, strategy)
+      .mapAsync(Parallelism)(_.serialize)
       .to(selfSink)
       .run()(ActorMaterializer(namePrefix = Some("serialization")))
   }
@@ -52,7 +57,7 @@ class DistributedPubSubMediatorSerializing(
       ref <- valueHolder.ref
     } yield (ref, address)
 
-    def forwardMsg() = refs foreach { case (ref, _) => ref forward msg }
+    def forward(): Unit = refs foreach { case (ref, _) => ref forward msg }
 
     if (refs.isEmpty) {
       ignoreOrSendToDeadLetters(msg)
@@ -60,41 +65,50 @@ class DistributedPubSubMediatorSerializing(
 
       val topic = toTopic(path)
 
-      val msgAndSerializer = msg match {
-        case _: PublishBytes                 => None
-        case msg: AnyRef if serialize(topic) => Some(msg -> serialization.findSerializerFor(msg))
-        case _                               => None
+      def serializeAndForward(msg: AnyRef): Unit = {
+        val sender = this.sender()
+
+        def result(msg: AnyRef) = {
+          val sendToAll = SendToAll(path, msg, allButSelf = true)
+          (sendToAll, sender)
+        }
+
+        val serialize = Future {
+          val serializer = serialization.findSerializerFor(msg)
+          val bytes = serializer.toBinary(msg)
+          val name = MetricName(topic)
+          metricRegistry.meter(s"$name.toBytes").mark(bytes.length.toLong)
+          val manifest = serializer match {
+            case serializer: SerializerWithStringManifest => serializer.manifest(msg)
+            case _ if serializer.includeManifest          => msg.getClass.getName
+            case _                                        => ""
+          }
+          val timestamp = Platform.currentTime
+          val msgBytes = MsgBytes(serializer.identifier, timestamp, manifest, bytes)
+          result(msgBytes)
+        } recover { case failure =>
+          log.error(s"Failed to serialize ${ msg.getClass.getName } at $topic, sending as is", failure)
+          result(msg)
+        }
+
+        val task = SerializationTask(topic, serialize)
+        queue.offerAndLog(task, s"Failed to enqueue ${ msg.getClass.getName } at $topic")
+
+        refs foreach { case (ref, address) => if (address == selfAddress) ref forward msg }
       }
 
-      msgAndSerializer match {
-        case None                    => forwardMsg()
-        case Some((msg, serializer)) =>
-          val serialize = () => {
-            val msgOrBytes = try {
-              val bytes = serializer.toBinary(msg)
-              PublishBytes(serializer.identifier, bytes)
-            } catch {
-              case NonFatal(failure) =>
-                log.error(s"Failed to serialize ${ msg.getClass.getName } at $topic, sending as is", failure)
-                msg
-            }
-
-            SendToAll(path, msgOrBytes, allButSelf = true)
-          }
-
-          def errorMsg = s"Failed to enqueue ${ msg.getClass.getName } at $topic"
-
-          queue.offerAndLog(SerializationTask(topic, sender(), serialize), errorMsg)
-
-          refs foreach { case (ref, address) => if (address == selfAddress) ref forward msg }
+      msg match {
+        case _: MsgBytes                     => forward()
+        case msg: AnyRef if serialize(topic) => serializeAndForward(msg)
+        case _                               => forward()
       }
     } else {
-      forwardMsg()
+      forward()
     }
   }
 
-  override def newTopicActor(encTopic: String) = {
-    val props = TopicSerializing.props(settings)
+  override def newTopicActor(encTopic: String): ActorRef = {
+    val props = TopicSerializing.props(settings, metricRegistry)
     val ref = context.actorOf(props, name = encTopic)
     registerTopic(ref)
     ref
@@ -103,7 +117,7 @@ class DistributedPubSubMediatorSerializing(
   private def ignoreOrSendToDeadLetters(msg: Any) =
     if (settings.sendToDeadLettersWhenNoSubscribers) context.system.deadLetters ! DeadLetter(msg, sender(), context.self)
 
-  case class SerializationTask(topic: String, sender: ActorRef, serialize: () => SendToAll)
+  case class SerializationTask(topic: String, serialize: Future[(SendToAll, Sender)])
 }
 
 object DistributedPubSubMediatorSerializing {
@@ -112,15 +126,18 @@ object DistributedPubSubMediatorSerializing {
 
   def props(
     settings: DistributedPubSubSettings,
-    serialize: String => Boolean): Props = {
+    serialize: String => Boolean,
+    metricRegistry: MetricRegistry): Props = {
 
-    def actor = new DistributedPubSubMediatorSerializing(settings, serialize)
+    def actor = new DistributedPubSubMediatorSerializing(settings, serialize, metricRegistry)
+
     Props(actor).withDeploy(Deploy.local)
   }
 
   def apply(
     system: ActorSystem,
     serialize: String => Boolean,
+    metricRegistry: MetricRegistry,
     name: String = "distributedPubSubMediatorOverride"): ActorRef = {
 
     val settings = DistributedPubSubSettings(system)
@@ -129,7 +146,7 @@ object DistributedPubSubMediatorSerializing {
       case id => id
     }
 
-    val props = this.props(settings, serialize).withDispatcher(dispatcher)
+    val props = this.props(settings, serialize, metricRegistry).withDispatcher(dispatcher)
     system.asInstanceOf[ExtendedActorSystem].systemActorOf(props, name)
   }
 
@@ -137,53 +154,54 @@ object DistributedPubSubMediatorSerializing {
   private def toTopic(path: String) = path.split("/").last
 
 
-  class TopicSerializing(emptyTimeToLive: FiniteDuration, routingLogic: RoutingLogic)
-    extends Topic(emptyTimeToLive, routingLogic) with ActorLogging with StreamHelper {
+  class TopicSerializing(
+    emptyTimeToLive: FiniteDuration,
+    routingLogic: RoutingLogic,
+    metricRegistry: MetricRegistry) extends Topic(emptyTimeToLive, routingLogic) with ActorLogging with StreamHelper {
 
     import context.dispatcher
 
-    private lazy val serialization = SerializationExtension(context.system)
+    private val serialization = SerializationExtension(context.system)
+    private val topic = toTopic(self.path.toStringWithoutAddress)
+
     private lazy val queue = {
       Source
-        .queue[DeserializationTask](Int.MaxValue, OverflowStrategy.backpressure)
-        .mapAsync(Parallelism)(x => Future(x.deserialize() map { _ -> x.sender }))
+        .queue[Future[Option[(AnyRef, Sender)]]](Int.MaxValue, OverflowStrategy.backpressure)
+        .mapAsync(Parallelism)(identity)
         .collect { case Some(x) => x }
         .to(selfSink)
         .run()(ActorMaterializer(namePrefix = Some("deserialization")))
     }
 
     def rcvBytes: Receive = {
-      case PublishBytes(identifier, bytes) =>
+      case MsgBytes(identifier, timestamp, manifest, bytes) =>
+        val latency = Platform.currentTime - timestamp
+        val name = MetricName(topic)
+        metricRegistry.histogram(s"$name.latency").update(latency)
 
-        def topic = toTopic(self.path.toStringWithoutAddress)
-
-        val deserialize = () => try {
-          val bytesCopy = CopyArray(bytes) // otherwise kryo corrupts original bytes array
-          serialization.deserialize[AnyRef](bytesCopy, identifier, None) match {
-            case Success(msg)     => Some(msg)
-            case Failure(failure) =>
-              log.error(failure, s"Failed to deserialize msg at $topic")
-              None
-          }
-        } catch {
-          case NonFatal(failure) =>
-            log.error(failure, s"Failed to deserialize msg at $topic")
-            None
+        val sender = this.sender()
+        val deserialize = Future {
+          metricRegistry.meter(s"$name.fromBytes").mark(bytes.length.toLong)
+          val msg =
+            if (manifest.nonEmpty) serialization.deserialize(bytes, identifier, manifest).get
+            else serialization.deserialize(bytes, identifier, None).get
+          val result = (msg, sender)
+          Some(result)
+        } recover { case failure =>
+          log.error(failure, s"Failed to deserialize msg at $topic")
+          None
         }
 
-        def errorMsg = s"Failed to enqueue msg at $topic"
-
-        queue.offerAndLog(DeserializationTask(sender(), deserialize), errorMsg)
+        queue.offerAndLog(deserialize, s"Failed to enqueue msg at $topic")
     }
 
     override def receive = rcvBytes orElse super.receive
-
-    private case class DeserializationTask(sender: ActorRef, deserialize: () => Option[AnyRef])
   }
 
   object TopicSerializing {
-    def props(settings: DistributedPubSubSettings): Props = {
-      def actor = new TopicSerializing(settings.removedTimeToLive, settings.routingLogic)
+    def props(settings: DistributedPubSubSettings, metricRegistry: MetricRegistry): Props = {
+      def actor = new TopicSerializing(settings.removedTimeToLive, settings.routingLogic, metricRegistry)
+
       Props(actor)
     }
   }
@@ -202,11 +220,11 @@ object DistributedPubSubMediatorSerializing {
           case Success(QueueOfferResult.Enqueued)         =>
           case Success(QueueOfferResult.Failure(failure)) => log.error(failure, errorMsg)
           case Success(failure)                           => log.error(s"$errorMsg $failure")
-          case Failure(failure)                           => log.error(failure, errorMsg)
+          case Failure(failure)                           => log.error(failure, s"$errorMsg $failure")
         }
       }
     }
   }
 }
 
-case class PublishBytes(identifier: Int, bytes: Array[Byte])
+case class MsgBytes(identifier: Int, timestamp: Long, manifest: String, bytes: Array[Byte])

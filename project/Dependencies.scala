@@ -14,7 +14,7 @@ object Dependencies {
 
   val scalax = "com.github.t3hnar" %% "scalax" % "3.3"
 
-  val scalaLogging = "com.typesafe.scala-logging" %% "scala-logging" % "3.7.2"
+  val scalaLogging = "com.typesafe.scala-logging" %% "scala-logging" % "3.8.0"
 
   val nel = "com.evolutiongaming" %% "nel" % "1.0"
 

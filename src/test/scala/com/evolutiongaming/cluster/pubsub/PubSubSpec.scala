@@ -2,12 +2,12 @@ package com.evolutiongaming.cluster.pubsub
 
 import akka.cluster.pubsub.{DistributedPubSubMediator => Mediator}
 import akka.testkit.TestProbe
-import com.evolutiongaming.safeakka.actor.WithSender
+import com.evolutiongaming.safeakka.actor.{ActorLog, WithSender}
 import org.scalatest.{Matchers, WordSpec}
 
 class PubSubSpec extends WordSpec with ActorSpec with Matchers {
 
-  "Impl" should {
+  "PubSub" should {
 
     "subscribe" in new Scope {
       pubSub.subscribe[Msg.type](ref, Some(group))
@@ -32,7 +32,7 @@ class PubSubSpec extends WordSpec with ActorSpec with Matchers {
     val topic = "topic"
     val probe = TestProbe()
     def ref = probe.ref
-    val pubSub = new PubSub.Impl(testActor)
+    val pubSub = PubSub(testActor, ActorLog.empty)
 
     case object Msg
 
