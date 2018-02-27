@@ -14,6 +14,7 @@ class PubSubSerializerSpec extends FunSuite with Matchers {
     val actual = serializer.fromBinary(bytes, manifest).asInstanceOf[MsgBytes]
     actual.timestamp shouldEqual expected.timestamp
     actual.identifier shouldEqual expected.identifier
+    actual.manifest shouldEqual expected.manifest
     actual.bytes.toList shouldEqual expected.bytes.toList
   }
 
