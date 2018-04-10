@@ -56,7 +56,8 @@ object PubSub {
 
     def subscribe[T](factory: ActorRefFactory)(onMsg: (T, ActorRef) => Unit)(implicit topic: Topic[T]): Unit = {
       val setup = Listener.setup(this)(onMsg)
-      Listener.safeActorRef(setup, factory)
+      val ref = Listener.safeActorRef(setup, factory)
+      subscribe(ref.unsafe)
     }
 
     def unsubscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unit = {
@@ -177,8 +178,6 @@ object PubSub {
 
     def setup[T](pubSub: PubSub)(onMsg: (T, ActorRef) => Unit)(implicit topic: Topic[T]): SetupActor[In[T]] = ctx => {
       val log = ActorLog(ctx.system, Listener.getClass) prefixed topic.toString
-
-      pubSub.subscribe[T](ctx.self)
 
       val behavior = Behavior.stateless[In[T]] {
         case Signal.Msg(msg, sender) => msg match {
