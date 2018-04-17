@@ -7,12 +7,12 @@ import akka.cluster.pubsub.DistributedPubSubMediator.Internal.Topic
 import akka.cluster.pubsub.DistributedPubSubMediator.SendToAll
 import akka.dispatch.Dispatchers
 import akka.routing.RoutingLogic
-import akka.serialization.{SerializationExtension, SerializerWithStringManifest}
 import akka.stream.scaladsl.{Sink, Source, SourceQueueWithComplete}
 import akka.stream.{ActorMaterializer, OverflowStrategy, QueueOfferResult}
 import com.codahale.metrics.MetricRegistry
 import com.evolutiongaming.metrics.MetricName
 import com.evolutiongaming.safeakka.actor.Sender
+import com.evolutiongaming.serialization.{SerializedMsg, SerializedMsgExt}
 
 import scala.compat.Platform
 import scala.concurrent.duration.FiniteDuration
@@ -34,7 +34,8 @@ class DistributedPubSubMediatorSerializing(
   import context.dispatcher
 
   private val selfAddress = Cluster(context.system).selfAddress
-  private val serialization = SerializationExtension(context.system)
+  private val serializedMsgExt = SerializedMsgExt(context.system)
+
   private lazy val queue = {
     val strategy = OverflowStrategy.backpressure
     val maxSubstreams = Parallelism
@@ -43,7 +44,7 @@ class DistributedPubSubMediatorSerializing(
       .queue[SerializationTask](bufferSize, strategy)
       .groupBy(maxSubstreams, elem => math.abs(elem.topic.hashCode) % maxSubstreams)
       .buffer(bufferSize, strategy)
-      .mapAsync(Parallelism)(_.serialize)
+      .mapAsync(1)(_.serialize)
       .to(selfSink)
       .run()(ActorMaterializer(namePrefix = Some("serialization")))
   }
@@ -74,18 +75,11 @@ class DistributedPubSubMediatorSerializing(
         }
 
         val serialize = Future {
-          val serializer = serialization.findSerializerFor(msg)
-          val bytes = serializer.toBinary(msg)
+          val serializedMsg = serializedMsgExt.toMsg(msg)
           val name = MetricName(topic)
-          metricRegistry.meter(s"$name.toBytes").mark(bytes.length.toLong)
-          val manifest = serializer match {
-            case serializer: SerializerWithStringManifest => serializer.manifest(msg)
-            case _ if serializer.includeManifest          => msg.getClass.getName
-            case _                                        => ""
-          }
-          val timestamp = Platform.currentTime
-          val msgBytes = MsgBytes(serializer.identifier, timestamp, manifest, bytes)
-          result(msgBytes)
+          metricRegistry.meter(s"$name.toBytes").mark(serializedMsg.bytes.length.toLong)
+          val pubSubMsg = MsgBytes(serializedMsg, Platform.currentTime)
+          result(pubSubMsg)
         } recover { case failure =>
           log.error(s"Failed to serialize ${ msg.getClass.getName } at $topic, sending as is", failure)
           result(msg)
@@ -98,9 +92,11 @@ class DistributedPubSubMediatorSerializing(
       }
 
       msg match {
-        case _: MsgBytes                     => forward()
-        case msg: AnyRef if serialize(topic) => serializeAndForward(msg)
-        case _                               => forward()
+        case _: MsgBytes                   => forward()
+        case _: PubSubMsg                  => forward()
+        case _: SerializedMsg              => forward()
+        case x: AnyRef if serialize(topic) => serializeAndForward(x)
+        case _                             => forward()
       }
     } else {
       forward()
@@ -161,41 +157,43 @@ object DistributedPubSubMediatorSerializing {
 
     import context.dispatcher
 
-    private val serialization = SerializationExtension(context.system)
+    private val serializedMsgExt = SerializedMsgExt(context.system)
+
     private val topic = toTopic(self.path.toStringWithoutAddress)
 
     private lazy val queue = {
       Source
         .queue[Future[Option[(AnyRef, Sender)]]](Int.MaxValue, OverflowStrategy.backpressure)
-        .mapAsync(Parallelism)(identity)
+        .mapAsync(1)(identity)
         .collect { case Some(x) => x }
         .to(selfSink)
         .run()(ActorMaterializer(namePrefix = Some("deserialization")))
     }
 
+    override def receive = rcvBytes orElse super.receive
+
     def rcvBytes: Receive = {
-      case MsgBytes(identifier, timestamp, manifest, bytes) =>
-        val latency = Platform.currentTime - timestamp
-        val name = MetricName(topic)
-        metricRegistry.histogram(s"$name.latency").update(latency)
-
-        val sender = this.sender()
-        val deserialize = Future {
-          metricRegistry.meter(s"$name.fromBytes").mark(bytes.length.toLong)
-          val msg =
-            if (manifest.nonEmpty) serialization.deserialize(bytes, identifier, manifest).get
-            else serialization.deserialize(bytes, identifier, None).get
-          val result = (msg, sender)
-          Some(result)
-        } recover { case failure =>
-          log.error(failure, s"Failed to deserialize msg at $topic")
-          None
-        }
-
-        queue.offerAndLog(deserialize, s"Failed to enqueue msg at $topic")
+      case PubSubMsg(serializedMsg, timestamp) => onBytes(serializedMsg, timestamp)
+      case MsgBytes(serializedMsg, timestamp)  => onBytes(serializedMsg, timestamp)
     }
 
-    override def receive = rcvBytes orElse super.receive
+    private def onBytes(serializedMsg: SerializedMsg, timestamp: Long) = {
+      val latency = Platform.currentTime - timestamp
+      val name = MetricName(topic)
+      metricRegistry.histogram(s"$name.latency").update(latency)
+      val sender = this.sender()
+      val deserialize = Future {
+        metricRegistry.meter(s"$name.fromBytes").mark(serializedMsg.bytes.length.toLong)
+        val msg = serializedMsgExt.fromMsg(serializedMsg).get
+        val result = (msg, sender)
+        Some(result)
+      } recover { case failure =>
+        log.error(failure, s"Failed to deserialize msg at $topic")
+        None
+      }
+
+      queue.offerAndLog(deserialize, s"Failed to enqueue msg at $topic")
+    }
   }
 
   object TopicSerializing {
@@ -227,4 +225,16 @@ object DistributedPubSubMediatorSerializing {
   }
 }
 
-case class MsgBytes(identifier: Int, timestamp: Long, manifest: String, bytes: Array[Byte])
+// deprecated
+case class MsgBytes(serializedMsg: SerializedMsg, timestamp: Long)
+
+object MsgBytes {
+  def apply(pubSubMsg: PubSubMsg): MsgBytes = MsgBytes(pubSubMsg.serializedMsg, pubSubMsg.timestamp)
+}
+
+
+case class PubSubMsg(serializedMsg: SerializedMsg, timestamp: Long)
+
+object PubSubMsg {
+  def apply(msgBytes: MsgBytes): PubSubMsg = PubSubMsg(msgBytes.serializedMsg, msgBytes.timestamp)
+}
