@@ -14,9 +14,9 @@ organizationHomepage := Some(url("http://evolutiongaming.com"))
 
 bintrayOrganization := Some("evolutiongaming")
 
-scalaVersion := "2.12.4"
+scalaVersion := "2.12.5"
 
-crossScalaVersions := Seq("2.12.4", "2.11.12")
+crossScalaVersions := Seq("2.12.5", "2.11.12")
 
 scalacOptions ++= Seq(
   "-encoding", "UTF-8",
@@ -44,8 +44,7 @@ libraryDependencies ++= Seq(
   scalaLogging,
   nel,
   metricTools,
-  scalaTest % Test,
-  mockitoCore % Test)
+  scalaTest % Test)
 
 licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT")))
 
