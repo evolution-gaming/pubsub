@@ -5,6 +5,8 @@ import java.nio.charset.{Charset, StandardCharsets}
 
 object SerializerHelper {
 
+  type Bytes = Array[Byte]
+
   val Utf8: Charset = StandardCharsets.UTF_8
 
 

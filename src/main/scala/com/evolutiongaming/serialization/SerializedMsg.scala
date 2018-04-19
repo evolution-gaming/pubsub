@@ -2,6 +2,7 @@ package com.evolutiongaming.serialization
 
 import akka.actor.{ExtendedActorSystem, Extension, ExtensionId}
 import akka.serialization.{Serialization, SerializationExtension, SerializerWithStringManifest}
+import com.evolutiongaming.serialization.SerializerHelper.Bytes
 
 import scala.util.Try
 
@@ -18,14 +19,18 @@ object SerializedMsgConverter {
     new SerializedMsgConverter {
 
       def toMsg(msg: AnyRef): SerializedMsg = {
-        val serializer = serialization.findSerializerFor(msg)
-        val bytes = serializer.toBinary(msg)
-        val manifest = serializer match {
-          case serializer: SerializerWithStringManifest => serializer.manifest(msg)
-          case _ if serializer.includeManifest          => msg.getClass.getName
-          case _                                        => ""
+        msg match {
+          case msg: SerializedMsg => msg
+          case _             =>
+            val serializer = serialization.findSerializerFor(msg)
+            val bytes = serializer.toBinary(msg)
+            val manifest = serializer match {
+              case serializer: SerializerWithStringManifest => serializer.manifest(msg)
+              case _ if serializer.includeManifest          => msg.getClass.getName
+              case _                                        => ""
+            }
+            SerializedMsg(serializer.identifier, manifest, bytes)
         }
-        SerializedMsg(serializer.identifier, manifest, bytes)
       }
 
       def fromMsg(msg: SerializedMsg) = {

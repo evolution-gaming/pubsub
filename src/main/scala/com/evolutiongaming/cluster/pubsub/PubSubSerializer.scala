@@ -7,7 +7,7 @@ import java.nio.ByteBuffer
 import akka.cluster.pubsub.{MsgBytes, PubSubMsg}
 import akka.serialization.SerializerWithStringManifest
 import com.evolutiongaming.serialization.SerializerHelper._
-import com.evolutiongaming.serialization.{Bytes, SerializedMsg}
+import com.evolutiongaming.serialization.SerializedMsg
 
 class PubSubSerializer extends SerializerWithStringManifest {
 
