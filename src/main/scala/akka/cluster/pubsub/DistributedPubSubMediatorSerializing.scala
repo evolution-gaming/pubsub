@@ -78,7 +78,7 @@ class DistributedPubSubMediatorSerializing(
           val serializedMsg = serializedMsgExt.toMsg(msg)
           val name = MetricName(topic)
           metricRegistry.meter(s"$name.toBytes").mark(serializedMsg.bytes.length.toLong)
-          val pubSubMsg = MsgBytes(serializedMsg, Platform.currentTime)
+          val pubSubMsg = PubSubMsg(serializedMsg, Platform.currentTime)
           result(pubSubMsg)
         } recover { case failure =>
           log.error(s"Failed to serialize ${ msg.getClass.getName } at $topic, sending as is", failure)
