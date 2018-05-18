@@ -11,12 +11,14 @@ import scala.reflect.ClassTag
 import scala.util.control.NonFatal
 
 trait PubSub {
+  import PubSub.Unsubscribe
 
-  def publish[T](msg: WithSender[T], sendToEachGroup: Boolean = false)(implicit topic: Topic[T]): Unit
+  def publish[T](msg: T, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false)
+    (implicit topic: Topic[T]): Unit
 
-  def subscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unit
+  def subscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unsubscribe
 
-  def subscribe[T](factory: ActorRefFactory)(f: (T, ActorRef) => Unit)(implicit topic: Topic[T]): Unit
+  def subscribe[T](factory: ActorRefFactory)(f: (T, ActorRef) => Unit)(implicit topic: Topic[T]): Unsubscribe
 
   def unsubscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unit
 
@@ -24,6 +26,13 @@ trait PubSub {
 }
 
 object PubSub {
+
+  type Unsubscribe = () => Unit
+
+  object Unsubscribe {
+    lazy val Empty: Unsubscribe = () => ()
+  }
+
 
   def apply(
     system: ActorSystem,
@@ -42,19 +51,22 @@ object PubSub {
 
   def apply(pubSub: ActorRef, log: ActorLog): PubSub = new PubSub {
 
-    def publish[T](msg: WithSender[T], sendToEachGroup: Boolean = false)(implicit topic: Topic[T]): Unit = {
-      val publish = Mediator.Publish(topic.str, msg.msg, sendToEachGroup)
+    def publish[T](msg: T, sender: Option[ActorRef], sendToEachGroup: Boolean = false)
+      (implicit topic: Topic[T]): Unit = {
+
+      val publish = Mediator.Publish(topic.str, msg, sendToEachGroup)
       log.debug(s"publish $publish")
-      pubSub.tell(publish, msg.senderOrNot)
+      pubSub.tell(publish, sender getOrElse ActorRef.noSender)
     }
 
-    def subscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unit = {
+    def subscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unsubscribe = {
       val subscribe = Mediator.Subscribe(topic.str, group, ref)
       log.debug(s"subscribe $subscribe")
       pubSub.tell(subscribe, ref)
+      () => unsubscribe(ref, group)
     }
 
-    def subscribe[T](factory: ActorRefFactory)(onMsg: (T, ActorRef) => Unit)(implicit topic: Topic[T]): Unit = {
+    def subscribe[T](factory: ActorRefFactory)(onMsg: (T, ActorRef) => Unit)(implicit topic: Topic[T]): Unsubscribe = {
       val setup = Listener.setup(this)(onMsg)
       val ref = Listener.safeActorRef(setup, factory)
       subscribe(ref.unsafe)
@@ -74,42 +86,47 @@ object PubSub {
 
   def apply(pubSub: PubSub, registry: MetricRegistry): PubSub = new PubSub {
 
-    def publish[T](msg: WithSender[T], sendToEachGroup: Boolean)(implicit topic: Topic[T]): Unit = {
+    def publish[T](msg: T, sender: Option[ActorRef], sendToEachGroup: Boolean = false)(implicit topic: Topic[T]): Unit = {
       val name = MetricName(topic.str)
       registry.meter(s"$name.publish").mark()
-      pubSub.publish(msg, sendToEachGroup)
+      pubSub.publish(msg, sender, sendToEachGroup)
     }
 
-    def subscribe[T](ref: Sender, group: Option[String])(implicit topic: Topic[T]): Unit = {
+    def subscribe[T](ref: ActorRef, group: Option[String])(implicit topic: Topic[T]): Unsubscribe = {
       val name = MetricName(topic.str)
       registry.counter(s"$name.subscriptions").inc()
       pubSub.subscribe(ref, group)
     }
 
-    def subscribe[T](factory: ActorRefFactory)(f: (T, Sender) => Unit)(implicit topic: Topic[T]): Unit = {
+    def subscribe[T](factory: ActorRefFactory)(f: (T, ActorRef) => Unit)(implicit topic: Topic[T]): Unsubscribe = {
       val name = MetricName(topic.str)
       registry.counter(s"$name.subscriptions").inc()
       pubSub.subscribe(factory)(f)
     }
 
-    def unsubscribe[T](ref: Sender, group: Option[String])(implicit topic: Topic[T]): Unit = {
+    def unsubscribe[T](ref: ActorRef, group: Option[String])(implicit topic: Topic[T]): Unit = {
       val name = MetricName(topic.str)
       registry.counter(s"$name.subscriptions").dec()
       pubSub.unsubscribe(ref, group)
     }
 
-    def topics(sender: Sender): Unit = {
+    def topics(sender: ActorRef): Unit = {
       pubSub.topics(sender)
     }
   }
 
+
   object Empty extends PubSub {
 
-    def publish[T](msg: WithSender[T], sendToEachGroup: Boolean = false)(implicit topic: Topic[T]): Unit = {}
+    def publish[T](msg: T, sender: Option[ActorRef], sendToEachGroup: Boolean = false)(implicit topic: Topic[T]): Unit = {}
 
-    def subscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unit = {}
+    def subscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unsubscribe = {
+      Unsubscribe.Empty
+    }
 
-    def subscribe[T](factory: ActorRefFactory)(f: (T, ActorRef) => Unit)(implicit topic: Topic[T]): Unit = {}
+    def subscribe[T](factory: ActorRefFactory)(f: (T, ActorRef) => Unit)(implicit topic: Topic[T]): Unsubscribe = {
+      Unsubscribe.Empty
+    }
 
     def unsubscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unit = {}
 
@@ -117,15 +134,19 @@ object PubSub {
   }
 
 
-  class Proxy(singleReceiver: ActorRef) extends PubSub {
+  class Proxy(ref: ActorRef) extends PubSub {
 
-    def publish[T](msg: WithSender[T], sendToEachGroup: Boolean = false)(implicit topic: Topic[T]): Unit = {
-      singleReceiver.tell(msg.msg, msg.senderOrNot)
+    def publish[T](msg: T, sender: Option[ActorRef], sendToEachGroup: Boolean = false)(implicit topic: Topic[T]): Unit = {
+      ref.tell(msg, sender getOrElse ActorRef.noSender)
     }
 
-    def subscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unit = {}
+    def subscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unsubscribe = {
+      Unsubscribe.Empty
+    }
 
-    def subscribe[T](factory: ActorRefFactory)(f: (T, ActorRef) => Unit)(implicit topic: Topic[T]): Unit = {}
+    def subscribe[T](factory: ActorRefFactory)(f: (T, ActorRef) => Unit)(implicit topic: Topic[T]): Unsubscribe = {
+      Unsubscribe.Empty
+    }
 
     def unsubscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unit = {}
 

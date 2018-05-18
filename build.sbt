@@ -14,9 +14,9 @@ organizationHomepage := Some(url("http://evolutiongaming.com"))
 
 bintrayOrganization := Some("evolutiongaming")
 
-scalaVersion := "2.12.5"
+scalaVersion := "2.12.6"
 
-crossScalaVersions := Seq("2.12.5", "2.11.12")
+crossScalaVersions := Seq("2.12.6", "2.11.12")
 
 scalacOptions ++= Seq(
   "-encoding", "UTF-8",

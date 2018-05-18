@@ -2,7 +2,7 @@ package com.evolutiongaming.cluster.pubsub
 
 import akka.cluster.pubsub.{DistributedPubSubMediator => Mediator}
 import akka.testkit.TestProbe
-import com.evolutiongaming.safeakka.actor.{ActorLog, WithSender}
+import com.evolutiongaming.safeakka.actor.ActorLog
 import org.scalatest.{Matchers, WordSpec}
 
 class PubSubSpec extends WordSpec with ActorSpec with Matchers {
@@ -16,7 +16,7 @@ class PubSubSpec extends WordSpec with ActorSpec with Matchers {
     }
 
     "publish" in new Scope {
-      pubSub publish WithSender(Msg)
+      pubSub publish Msg
       expectMsg(Mediator.Publish(topic, Msg))
     }
 

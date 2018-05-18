@@ -5,12 +5,11 @@
 
 ```scala
 trait PubSub {
-
   def publish[T](msg: WithSender[T], sendToEachGroup: Boolean = false)(implicit topic: Topic[T]): Unit
 
-  def subscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unit
+  def subscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unsubscribe
 
-  def subscribe[T](factory: ActorRefFactory)(f: (T, ActorRef) => Unit)(implicit topic: Topic[T]): Unit
+  def subscribe[T](factory: ActorRefFactory)(f: (T, ActorRef) => Unit)(implicit topic: Topic[T]): Unsubscribe
 
   def unsubscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unit
 

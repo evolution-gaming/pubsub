@@ -1,19 +1,19 @@
 package com.evolutiongaming.cluster.pubsub
 
 import akka.actor.{ActorRef, ActorRefFactory}
-import akka.stream.scaladsl.{Sink, Source, SourceQueueWithComplete}
+import akka.stream.scaladsl.{Sink, Source}
 import akka.stream.{ActorMaterializer, OverflowStrategy, QueueOfferResult}
-import com.evolutiongaming.safeakka.actor.WithSender
+import com.evolutiongaming.concurrent.CurrentThreadExecutionContext
 import com.evolutiongaming.nel.Nel
+import com.evolutiongaming.safeakka.actor.WithSender
 import com.typesafe.scalalogging.LazyLogging
 
 import scala.collection.immutable.Seq
-import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.FiniteDuration
 import scala.util.{Failure, Success}
 
 trait PubSubGroupWithin[-T] {
-  def publish(msg: WithSender[T]): Unit
+  def publish(msg: T, sender: Option[ActorRef]): Unit
 }
 
 
@@ -31,7 +31,7 @@ object PubSubGroupWithin {
       Nel.opt(msgs) foreach { msgs =>
         val msg = group(msgs map { _.msg })
         val sender = msgs.head.sender
-        pubSub.publish(WithSender(msg, sender))(topic)
+        pubSub.publish(msg, sender)(topic)
       }
     }
 
@@ -43,33 +43,31 @@ object PubSubGroupWithin {
       .to(Sink.foreach(publish))
       .run()(materializer)
 
-    new Impl(group, queue, topic)(factory.dispatcher)
-  }
+    implicit val ec = CurrentThreadExecutionContext
 
-  def empty[T]: PubSubGroupWithin[T] = Empty
+    new PubSubGroupWithin[T] with LazyLogging {
 
+      def publish(msg: T, sender: Option[ActorRef]): Unit = {
 
-  class Impl[-T](
-    group: Nel[T] => T,
-    queue: SourceQueueWithComplete[WithSender[T]],
-    topic: Topic[T])(implicit ec: ExecutionContext) extends PubSubGroupWithin[T] with LazyLogging {
+        def errorMsg = s"Failed to enqueue msg ${ msg.getClass.getName } at: ${ topic.str }"
 
-    def publish(msg: WithSender[T]): Unit = {
-      
-      def errorMsg = s"Failed to enqueue msg ${ msg.getClass.getName } at: ${ topic.str }"
-
-      queue.offer(msg) onComplete {
-        case Success(QueueOfferResult.Enqueued)         =>
-        case Success(QueueOfferResult.Failure(failure)) => logger.error(errorMsg, failure)
-        case Success(failure)                           => logger.error(s"$errorMsg $failure")
-        case Failure(failure)                           => logger.error(errorMsg, failure)
+        val withSender = WithSender(msg, sender)
+        queue.offer(withSender) onComplete {
+          case Success(QueueOfferResult.Enqueued)         =>
+          case Success(QueueOfferResult.Failure(failure)) => logger.error(errorMsg, failure)
+          case Success(failure)                           => logger.error(s"$errorMsg $failure")
+          case Failure(failure)                           => logger.error(errorMsg, failure)
+        }
       }
     }
   }
 
 
+  def empty[T]: PubSubGroupWithin[T] = Empty
+
+
   class Proxy[-T](pubSub: PubSub)(implicit topic: Topic[T]) extends PubSubGroupWithin[T] {
-    def publish(msg: WithSender[T]): Unit = pubSub.publish(msg)
+    def publish(msg: T, sender: Option[ActorRef]): Unit = pubSub.publish(msg, sender)
   }
 
   object Proxy {
@@ -81,6 +79,6 @@ object PubSubGroupWithin {
 
 
   private object Empty extends PubSubGroupWithin[Any] {
-    def publish(msg: WithSender[Any]): Unit = {}
+    def publish(msg: Any, sender: Option[ActorRef]): Unit = {}
   }
 }
