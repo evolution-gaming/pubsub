@@ -5,15 +5,25 @@
 
 ```scala
 trait PubSub {
-  def publish[T](msg: WithSender[T], sendToEachGroup: Boolean = false)(implicit topic: Topic[T]): Unit
 
-  def subscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unsubscribe
+  def publishAny[T](msg: T, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false)
+    (implicit topic: Topic[T]): Unit
 
-  def subscribe[T](factory: ActorRefFactory)(f: (T, ActorRef) => Unit)(implicit topic: Topic[T]): Unsubscribe
+  def subscribeAny[T](ref: ActorRef, group: Option[String] = None)
+    (implicit topic: Topic[T], tag: ClassTag[T]): Unsubscribe
+
+  def subscribeAny[T](factory: ActorRefFactory)(onMsg: (T, ActorRef) => Unit)
+    (implicit topic: Topic[T], tag: ClassTag[T]): Unsubscribe
+
+  def publish[T](msg: T, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false)
+    (implicit topic: Topic[T], toBytes: ToBytes[T]): Unit
+
+  def subscribe[T](factory: ActorRefFactory)(onMsg: (T, ActorRef) => Unit)
+    (implicit topic: Topic[T], fromBytes: FromBytes[T], tag: ClassTag[T]): Unsubscribe
 
   def unsubscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unit
 
-  def topics(sender: ActorRef): Unit
+  def topics(timeout: FiniteDuration = 3.seconds): Future[Set[String]]
 }
 ```
 
@@ -27,5 +37,5 @@ Check `DistributedPubSubMediatorSerializing.scala`
 ```scala
 resolvers += Resolver.bintrayRepo("evolutiongaming", "maven")
 
-libraryDependencies += "com.evolutiongaming" %% "pubsub" % "1.1.6"
+libraryDependencies += "com.evolutiongaming" %% "pubsub" % "2.0.0"
 ```
