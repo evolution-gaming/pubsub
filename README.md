@@ -27,5 +27,5 @@ Check `DistributedPubSubMediatorSerializing.scala`
 ```scala
 resolvers += Resolver.bintrayRepo("evolutiongaming", "maven")
 
-libraryDependencies += "com.evolutiongaming" %% "pubsub" % "1.0"
+libraryDependencies += "com.evolutiongaming" %% "pubsub" % "1.1.6"
 ```

@@ -9,6 +9,7 @@ import org.scalatest.{FlatSpec, Matchers}
 import scala.concurrent.duration._
 
 class LocalPubSubSpec extends FlatSpec with ActorSpec with Matchers with Eventually {
+
   "LocalPubSub" should "receive Subscribe" in new Scope {
     actor ! Mediator.Subscribe(topic1, probe1.ref)
     state() shouldEqual Map(topic1 -> Set(probe1.ref))
@@ -94,12 +95,23 @@ class LocalPubSubSpec extends FlatSpec with ActorSpec with Matchers with Eventua
     state() shouldEqual Map(topic1 -> Set(probe1.ref), topic2 -> Set(probe1.ref))
   }
 
+  it should "receive GetTopics and reply with CurrentTopics" in new Scope {
+    actor ! Mediator.GetTopics
+    expectMsg(Mediator.CurrentTopics(Set.empty))
+
+    actor ! Mediator.Subscribe(topic1, Some(LocalPubSub.Ack), testActor)
+    expectMsg(Subscribed(topic1))
+
+    actor ! Mediator.GetTopics
+    expectMsg(Mediator.CurrentTopics(Set(topic1)))
+  }
+
   private trait Scope extends ActorScope {
     val topic1 = "topic1"
     val topic2 = "topic2"
     val actor = TestActorRef(LocalPubSub.props)
-    val probe1 = TestProbe()
-    val probe2 = TestProbe()
+    lazy val probe1 = TestProbe()
+    lazy val probe2 = TestProbe()
     val msg = "msg"
 
     def state() = {

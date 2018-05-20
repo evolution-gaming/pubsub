@@ -92,7 +92,6 @@ class DistributedPubSubMediatorSerializing(
       }
 
       msg match {
-        case _: MsgBytes                   => forward()
         case _: PubSubMsg                  => forward()
         case _: SerializedMsg              => forward()
         case x: AnyRef if serialize(topic) => serializeAndForward(x)
@@ -174,7 +173,6 @@ object DistributedPubSubMediatorSerializing {
 
     def rcvBytes: Receive = {
       case PubSubMsg(serializedMsg, timestamp) => onBytes(serializedMsg, timestamp)
-      case MsgBytes(serializedMsg, timestamp)  => onBytes(serializedMsg, timestamp)
     }
 
     private def onBytes(serializedMsg: SerializedMsg, timestamp: Long) = {
@@ -225,16 +223,4 @@ object DistributedPubSubMediatorSerializing {
   }
 }
 
-// deprecated
-case class MsgBytes(serializedMsg: SerializedMsg, timestamp: Long)
-
-object MsgBytes {
-  def apply(pubSubMsg: PubSubMsg): MsgBytes = MsgBytes(pubSubMsg.serializedMsg, pubSubMsg.timestamp)
-}
-
-
 case class PubSubMsg(serializedMsg: SerializedMsg, timestamp: Long)
-
-object PubSubMsg {
-  def apply(msgBytes: MsgBytes): PubSubMsg = PubSubMsg(msgBytes.serializedMsg, msgBytes.timestamp)
-}

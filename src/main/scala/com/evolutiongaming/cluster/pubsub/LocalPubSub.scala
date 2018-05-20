@@ -30,7 +30,9 @@ class LocalPubSub extends Actor with ActorLogging {
 
     case GetState => sender() ! State(map)
 
-    case Mediator.Count => log.warning("{} is not supported", Mediator.Count)
+    case Mediator.Count => sender() ! map.values.foldLeft(0) { _ + _.size }
+
+    case Mediator.GetTopics => sender() ! Mediator.CurrentTopics(map.keySet)
   }
 }
 
