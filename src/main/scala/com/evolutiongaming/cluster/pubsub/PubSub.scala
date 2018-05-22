@@ -85,9 +85,40 @@ object PubSub {
     def subscribeAny[T](factory: ActorRefFactory)(onMsg: (T, ActorRef) => Unit)
       (implicit topic: Topic[T], tag: ClassTag[T]): Unsubscribe = {
 
-      val setup = Listener.setup(this)(onMsg)
-      val ref = Listener.safeActorRef(setup, factory)
-      subscribeAny(ref.unsafe)
+      import Listener.In
+
+      def subscribe(log: ActorLog) = {
+
+        val setup: SetupActor[In[T]] = ctx => {
+          val behavior = Behavior.stateless[In[T]] {
+            case Signal.Msg(msg, sender) => msg match {
+              case In.Subscribed => log.debug(s"subscribed ${ ctx.self }")
+              case In.Msg(msg)   =>
+                log.debug(s"receive $msg")
+                try onMsg(msg, sender) catch {
+                  case NonFatal(failure) => log.error(s"failure $failure", failure)
+                }
+            }
+            case Signal.PostStop         => unsubscribe(ctx.self)
+            case _                       =>
+          }
+
+          val logListener = ActorLog(ctx.system, Listener.getClass) prefixed topic.name
+          (behavior, logListener)
+        }
+
+        val unapply = Unapply.pf[In[T]] {
+          case _: Mediator.SubscribeAck => In.Subscribed
+          case In.Msg(tag(x))           => In.Msg(x)
+          case In.Subscribed            => In.Subscribed
+          case tag(x)                   => In.Msg(x)
+        }
+
+        val ref = SafeActorRef(setup)(factory, unapply)
+        subscribeAny(ref.unsafe)
+      }
+
+      subscribe(log.prefixed(topic.name))
     }
 
     def publish[T](msg: T, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false)
@@ -297,39 +328,10 @@ object PubSub {
       Props(actor())
     }
 
-    def setup[T](pubSub: PubSub)(onMsg: (T, ActorRef) => Unit)(implicit topic: Topic[T]): SetupActor[In[T]] = ctx => {
-      val log = ActorLog(ctx.system, Listener.getClass) prefixed topic.toString
-
-      val behavior = Behavior.stateless[In[T]] {
-        case Signal.Msg(msg, sender) => msg match {
-          case In.Ack(subscribe) => log.debug(s"$topic: subscribed ${ subscribe.ref }")
-          case In.Msg(msg)       => try onMsg(msg, sender) catch {
-            case NonFatal(failure) => log.error(s"$topic: failure $failure", failure)
-          }
-        }
-        case Signal.PostStop         => pubSub.unsubscribe(ctx.self)
-        case _                       =>
-      }
-      (behavior, log)
-    }
-
-    def safeActorRef[T](setup: SetupActor[In[T]], factory: ActorRefFactory)
-      (implicit tag: ClassTag[T]): SafeActorRef[In[T]] = {
-
-      val unapply = Unapply.pf[In[T]] {
-        case Mediator.SubscribeAck(x) => In.Ack(x)
-        case In.Msg(tag(x))           => In.Msg(x)
-        case in: In.Ack               => in
-        case tag(x)                   => In.Msg(x)
-      }
-      SafeActorRef(setup)(factory, unapply)
-    }
-
-
     sealed trait In[+T]
     object In {
       case class Msg[T](msg: T) extends In[T]
-      case class Ack(subscribe: Mediator.Subscribe) extends In[Nothing]
+      case object Subscribed extends In[Nothing]
     }
   }
 }

@@ -2,7 +2,7 @@ package com.evolutiongaming.cluster.pubsub
 
 import com.evolutiongaming.serialization.SerializerHelper._
 
-trait ToBytes[T] {
+trait ToBytes[-T] {
   def apply(value: T): Array[Byte]
 }
 
@@ -18,6 +18,7 @@ trait FromBytes[T] {
 }
 
 object FromBytes {
+
   implicit val StrFromBytes: FromBytes[String] = new FromBytes[String] {
     def apply(bytes: Array[Byte]): String = new String(bytes, Utf8)
   }

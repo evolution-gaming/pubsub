@@ -17,9 +17,13 @@ object ToBytesAble {
 
   case class Raw[T](msg: T, toBytes: ToBytes[T]) extends ToBytesAble {
     def bytes(): Array[Byte] = toBytes(msg)
+
+    override def toString: String = s"$productPrefix($msg)"
   }
 
   case class Bytes(value: Array[Byte]) extends ToBytesAble {
     def bytes(): Array[Byte] = value
+
+    override def toString: String = s"$productPrefix(${ value.length })"
   }
 }
