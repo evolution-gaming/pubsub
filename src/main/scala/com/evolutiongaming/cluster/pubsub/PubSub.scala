@@ -28,10 +28,13 @@ trait PubSub {
   def subscribeAny[T](factory: ActorRefFactory)(onMsg: (T, ActorRef) => Unit)
     (implicit topic: Topic[T], tag: ClassTag[T]): Unsubscribe
 
+  def subscribeAny[T](factory: ActorRefFactory, group: Option[String])(onMsg: (T, ActorRef) => Unit)
+    (implicit topic: Topic[T], tag: ClassTag[T]): Unsubscribe
+
   def publish[T](msg: T, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false)
     (implicit topic: Topic[T], toBytes: ToBytes[T]): Unit
 
-  def subscribe[T](factory: ActorRefFactory)(onMsg: (T, ActorRef) => Unit)
+  def subscribe[T](factory: ActorRefFactory, group: Option[String] = None)(onMsg: (T, ActorRef) => Unit)
     (implicit topic: Topic[T], fromBytes: FromBytes[T], tag: ClassTag[T]): Unsubscribe
 
   def unsubscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unit
@@ -73,6 +76,12 @@ object PubSub {
       pubSub.tell(publish, sender getOrElse ActorRef.noSender)
     }
 
+    def subscribeAny[T](factory: ActorRefFactory)(onMsg: (T, ActorRef) => Unit)
+      (implicit topic: Topic[T], tag: ClassTag[T]): Unsubscribe = {
+
+      subscribeAny(factory, None)(onMsg)
+    }
+
     def subscribeAny[T](ref: ActorRef, group: Option[String] = None)
       (implicit topic: Topic[T], tag: ClassTag[T]): Unsubscribe = {
 
@@ -82,7 +91,7 @@ object PubSub {
       () => unsubscribe(ref, group)
     }
 
-    def subscribeAny[T](factory: ActorRefFactory)(onMsg: (T, ActorRef) => Unit)
+    def subscribeAny[T](factory: ActorRefFactory, group: Option[String])(onMsg: (T, ActorRef) => Unit)
       (implicit topic: Topic[T], tag: ClassTag[T]): Unsubscribe = {
 
       import Listener.In
@@ -115,7 +124,7 @@ object PubSub {
         }
 
         val ref = SafeActorRef(setup)(factory, unapply)
-        subscribeAny(ref.unsafe)
+        subscribeAny(ref.unsafe, group)
       }
 
       subscribe(log.prefixed(topic.name))
@@ -129,7 +138,7 @@ object PubSub {
       publishAny(toBytesAble, sender, sendToEachGroup)
     }
 
-    def subscribe[T](factory: ActorRefFactory)(onMsg: (T, ActorRef) => Unit)
+    def subscribe[T](factory: ActorRefFactory, group: Option[String] = None)(onMsg: (T, ActorRef) => Unit)
       (implicit topic: Topic[T], fromBytes: FromBytes[T], tag: ClassTag[T]): Unsubscribe = {
 
       implicit val topicFinal = Topic[ToBytesAble](topic.name)
@@ -142,7 +151,7 @@ object PubSub {
         }
       }
 
-      subscribeAny(factory)(onMsgFinal)
+      subscribeAny(factory, group)(onMsgFinal)
     }
 
     def unsubscribe[T](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[T]): Unit = {
@@ -181,6 +190,13 @@ object PubSub {
       pubSub.subscribeAny(factory)(onMsg)
     }
 
+    def subscribeAny[T](factory: ActorRefFactory, group: Option[String])(onMsg: (T, ActorRef) => Unit)
+      (implicit topic: Topic[T], tag: ClassTag[T]): Unsubscribe = {
+
+      incSubscriptions(topic)
+      pubSub.subscribeAny(factory, group)(onMsg)
+    }
+
     def publish[T](msg: T, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false)
       (implicit topic: Topic[T], toBytes: ToBytes[T]): Unit = {
 
@@ -188,11 +204,11 @@ object PubSub {
       pubSub.publish(msg, sender, sendToEachGroup)
     }
 
-    def subscribe[T](factory: ActorRefFactory)(onMsg: (T, ActorRef) => Unit)
+    def subscribe[T](factory: ActorRefFactory, group: Option[String] = None)(onMsg: (T, ActorRef) => Unit)
       (implicit topic: Topic[T], fromBytes: FromBytes[T], tag: ClassTag[T]): Unsubscribe = {
 
       incSubscriptions(topic)
-      pubSub.subscribe(factory)(onMsg)
+      pubSub.subscribe(factory, group)(onMsg)
     }
 
     def unsubscribe[T](ref: ActorRef, group: Option[String])(implicit topic: Topic[T]): Unit = {
@@ -232,10 +248,15 @@ object PubSub {
       Unsubscribe.Empty
     }
 
+    def subscribeAny[T](factory: ActorRefFactory, group: Option[String])(onMsg: (T, ActorRef) => Unit)
+      (implicit topic: Topic[T], tag: ClassTag[T]): Unsubscribe = {
+      Unsubscribe.Empty
+    }
+
     def publish[T](msg: T, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false)
       (implicit topic: Topic[T], toBytes: ToBytes[T]): Unit = {}
 
-    def subscribe[T](factory: ActorRefFactory)(onMsg: (T, ActorRef) => Unit)
+    def subscribe[T](factory: ActorRefFactory, group: Option[String] = None)(onMsg: (T, ActorRef) => Unit)
       (implicit topic: Topic[T], fromBytes: FromBytes[T], tag: ClassTag[T]): Unsubscribe = {
       Unsubscribe.Empty
     }
@@ -262,12 +283,17 @@ object PubSub {
       Unsubscribe.Empty
     }
 
+    def subscribeAny[T](factory: ActorRefFactory, group: Option[String])(onMsg: (T, ActorRef) => Unit)
+      (implicit topic: Topic[T], tag: ClassTag[T]): Unsubscribe = {
+      Unsubscribe.Empty
+    }
+
     def publish[T](msg: T, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false)
       (implicit topic: Topic[T], toBytes: ToBytes[T]): Unit = {
       ref.tell(msg, sender getOrElse ActorRef.noSender)
     }
 
-    def subscribe[T](factory: ActorRefFactory)(onMsg: (T, ActorRef) => Unit)
+    def subscribe[T](factory: ActorRefFactory, group: Option[String] = None)(onMsg: (T, ActorRef) => Unit)
       (implicit topic: Topic[T], fromBytes: FromBytes[T], tag: ClassTag[T]): Unsubscribe = {
       Unsubscribe.Empty
     }
