@@ -94,7 +94,7 @@ object PubSub {
     def subscribeAny[T](factory: ActorRefFactory, group: Option[String])(onMsg: (T, ActorRef) => Unit)
       (implicit topic: Topic[T], tag: ClassTag[T]): Unsubscribe = {
 
-      import Listener.In
+      import Subscription.In
 
       def subscribe(log: ActorLog) = {
 
@@ -312,6 +312,7 @@ object PubSub {
   }
 
 
+  // TODO delete
   abstract class Listener[T](pubSub: PubSub)(implicit topic: Topic[T], tag: ClassTag[T]) extends Actor with ActorLogging {
 
     override def preStart() = {
@@ -353,8 +354,13 @@ object PubSub {
 
       Props(actor())
     }
+  }
+
+
+  object Subscription {
 
     sealed trait In[+T]
+
     object In {
       case class Msg[T](msg: T) extends In[T]
       case object Subscribed extends In[Nothing]

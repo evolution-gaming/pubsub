@@ -81,7 +81,7 @@ class DistributedPubSubMediatorSerializing(
           val pubSubMsg = PubSubMsg(serializedMsg, Platform.currentTime)
           result(pubSubMsg)
         } recover { case failure =>
-          log.error(s"Failed to serialize ${ msg.getClass.getName } at $topic, sending as is", failure)
+          log.error(failure, s"Failed to serialize ${ msg.getClass.getName } at $topic, sending as is")
           result(msg)
         }
 
