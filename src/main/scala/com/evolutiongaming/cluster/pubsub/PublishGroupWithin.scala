@@ -44,7 +44,7 @@ object PublishGroupWithin {
     apply(groupWithin, log, topic)
   }
 
-  private def apply[T](groupWithin: GroupWithin[WithSender[T]], log: ActorLog, topic: Topic[T]): PublishGroupWithin[T] = {
+  def apply[T](groupWithin: GroupWithin[WithSender[T]], log: ActorLog, topic: Topic[T]): PublishGroupWithin[T] = {
     implicit val ec = CurrentThreadExecutionContext
     new PublishGroupWithin[T] {
       def apply(msg: T, sender: Option[ActorRef]): Unit = {
