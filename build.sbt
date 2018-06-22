@@ -14,9 +14,9 @@ organizationHomepage := Some(url("http://evolutiongaming.com"))
 
 bintrayOrganization := Some("evolutiongaming")
 
-scalaVersion := "2.12.6"
+scalaVersion := crossScalaVersions.value.last
 
-crossScalaVersions := Seq("2.12.6", "2.11.12")
+crossScalaVersions := Seq("2.11.12", "2.12.6")
 
 scalacOptions ++= Seq(
   "-encoding", "UTF-8",
@@ -41,7 +41,6 @@ libraryDependencies ++= Seq(
   Akka.Testkit % Test,
   safeAkka,
   scalax,
-  scalaLogging,
   nel,
   metricTools,
   scalaTest % Test)
