@@ -35,6 +35,7 @@ class DistributedPubSubMediatorSerializing(
 
   private val selfAddress = Cluster(context.system).selfAddress
   private val serializedMsgExt = SerializedMsgExt(context.system)
+  private val toBytesMeter = metricRegistry.meter("toBytes")
 
   private lazy val queue = {
     val strategy = OverflowStrategy.backpressure
@@ -77,7 +78,9 @@ class DistributedPubSubMediatorSerializing(
         val serialize = Future {
           val serializedMsg = serializedMsgExt.toMsg(msg)
           val name = MetricName(topic)
-          metricRegistry.meter(s"$name.toBytes").mark(serializedMsg.bytes.length.toLong)
+          val length = serializedMsg.bytes.length.toLong
+          toBytesMeter.mark(length)
+          metricRegistry.meter(s"$name.toBytes").mark(length)
           val pubSubMsg = PubSubMsg(serializedMsg, Platform.currentTime)
           result(pubSubMsg)
         } recover { case failure =>
@@ -160,6 +163,9 @@ object DistributedPubSubMediatorSerializing {
 
     private val topic = toTopic(self.path.toStringWithoutAddress)
 
+    private val latencyHistogram = metricRegistry.histogram("latency")
+    private val fromBytesMeter = metricRegistry.meter("fromBytes")
+
     private lazy val queue = {
       Source
         .queue[Future[Option[(AnyRef, Sender)]]](Int.MaxValue, OverflowStrategy.backpressure)
@@ -178,10 +184,13 @@ object DistributedPubSubMediatorSerializing {
     private def onBytes(serializedMsg: SerializedMsg, timestamp: Long) = {
       val latency = Platform.currentTime - timestamp
       val name = MetricName(topic)
+      latencyHistogram.update(latency)
       metricRegistry.histogram(s"$name.latency").update(latency)
       val sender = this.sender()
       val deserialize = Future {
-        metricRegistry.meter(s"$name.fromBytes").mark(serializedMsg.bytes.length.toLong)
+        val length = serializedMsg.bytes.length.toLong
+        fromBytesMeter.mark(length)
+        metricRegistry.meter(s"$name.fromBytes").mark(length)
         val msg = serializedMsgExt.fromMsg(serializedMsg).get
         val result = (msg, sender)
         Some(result)
