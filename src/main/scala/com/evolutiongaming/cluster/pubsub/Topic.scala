@@ -12,7 +12,7 @@ object Topic {
 
   def apply[T](name: String): Topic[T] = Impl(name)
 
-  private case class Impl[T](name: String) extends Topic[T] {
+  private final case class Impl[T](name: String) extends Topic[T] {
     override def productPrefix = s"Topic($name)"
   }
 }

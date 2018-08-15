@@ -6,7 +6,7 @@ import com.evolutiongaming.serialization.SerializerHelper.Bytes
 
 import scala.util.Try
 
-case class SerializedMsg(identifier: Int, manifest: String, bytes: Bytes)
+final case class SerializedMsg(identifier: Int, manifest: String, bytes: Bytes)
 
 
 trait SerializedMsgConverter extends Extension {

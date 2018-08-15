@@ -232,4 +232,4 @@ object DistributedPubSubMediatorSerializing {
   }
 }
 
-case class PubSubMsg(serializedMsg: SerializedMsg, timestamp: Long)
+final case class PubSubMsg(serializedMsg: SerializedMsg, timestamp: Long)

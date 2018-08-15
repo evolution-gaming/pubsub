@@ -75,7 +75,7 @@ object GroupWithin {
   class QueueException(message: String, cause: Option[Throwable] = None) extends RuntimeException(message, cause.orNull)
 
 
-  case class Settings(delay: FiniteDuration, size: Int, buffer: Int)
+  final case class Settings(delay: FiniteDuration, size: Int, buffer: Int)
 
   object Settings {
     def apply(delay: FiniteDuration, size: Int): Settings = {

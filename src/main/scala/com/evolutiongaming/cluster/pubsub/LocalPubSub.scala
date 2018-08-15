@@ -42,12 +42,12 @@ object LocalPubSub {
   // to be used in tests only, will not work in cluster
   private[cluster] val Ack: String = "ack"
 
-  case class Subscribed(topic: String)
+  final case class Subscribed(topic: String)
 
   object Subscribed {
     def apply(topic: Class[_]): Subscribed = Subscribed(topic.getName)
   }
 
   private[cluster] case object GetState
-  private[cluster] case class State(value: Map[String, Set[ActorRef]])
+  private[cluster] final case class State(value: Map[String, Set[ActorRef]])
 }

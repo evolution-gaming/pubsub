@@ -362,7 +362,7 @@ object PubSub {
     sealed trait In[+T]
 
     object In {
-      case class Msg[T](msg: T) extends In[T]
+      final case class Msg[T](msg: T) extends In[T]
       case object Subscribed extends In[Nothing]
     }
   }
