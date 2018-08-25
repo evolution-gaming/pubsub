@@ -39,11 +39,12 @@ libraryDependencies ++= Seq(
   Akka.Stream,
   Akka.ClusterTools,
   Akka.Testkit % Test,
-  safeAkka,
+  `safe-actor`,
   scalax,
   nel,
-  metricTools,
-  scalaTest % Test)
+  `metric-tools`,
+  `akka-serialization`,
+  scalatest % Test)
 
 licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT")))
 
