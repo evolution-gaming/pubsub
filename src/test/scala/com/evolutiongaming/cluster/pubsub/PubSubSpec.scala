@@ -3,29 +3,62 @@ package com.evolutiongaming.cluster.pubsub
 import akka.cluster.pubsub.{DistributedPubSubMediator => Mediator}
 import akka.testkit.TestProbe
 import com.evolutiongaming.safeakka.actor.ActorLog
+import com.evolutiongaming.serialization.ToBytesAble
 import org.scalatest.{Matchers, WordSpec}
 
 import scala.concurrent.Await
 
 class PubSubSpec extends WordSpec with ActorSpec with Matchers {
 
+  val topic = "topic"
+  val msg = "msg"
+  type Msg = String
+  implicit val MsgTopic: Topic[Msg] = Topic[Msg](topic)
+
   "PubSub" should {
 
-    "subscribeAny" in new Scope {
-      pubSub.subscribeAny[Msg.type](ref, Some(group))
-      expectMsg(Mediator.Subscribe(topic, Some(group), ref))
-      lastSender shouldEqual probe.ref
+    for {
+      group <- List(Some("group"), None)
+    } {
+      s"subscribeAny ActorRef, group: $group" in new Scope {
+        pubSub.subscribeAny[Msg](ref, group)
+        expectMsg(Mediator.Subscribe(topic, group, ref))
+        lastSender shouldEqual probe.ref
+      }
+
+      s"subscribeAny, group: $group" in new Scope {
+        val unsubscribe = pubSub.subscribeAny[Msg](system, group) { (_: Msg, _) => }
+        val subscriber = expectMsgPF() { case Mediator.Subscribe(`topic`, `group`, ref) => ref }
+        unsubscribe()
+        expectMsg(Mediator.Unsubscribe(topic, group, subscriber))
+      }
+
+      s"subscribe, group: $group" in new Scope {
+        val unsubscribe = pubSub.subscribe[Msg](system, group) { (_: Msg, _) => }
+        val subscriber = expectMsgPF() { case Mediator.Subscribe(`topic`, `group`, ref) => ref }
+        unsubscribe()
+        expectMsg(Mediator.Unsubscribe(topic, group, subscriber))
+      }
+
+      s"unsubscribe, group: $group" in new Scope {
+        pubSub.unsubscribe[Msg](ref, group)
+        expectMsg(Mediator.Unsubscribe(topic, group, ref))
+        lastSender shouldEqual probe.ref
+      }
     }
 
-    "publishAny" in new Scope {
-      pubSub publishAny Msg
-      expectMsg(Mediator.Publish(topic, Msg))
-    }
+    for {
+      sendToEachGroup <- List(true, false)
+    } {
+      s"publishAny, sendToEachGroup: $sendToEachGroup" in new Scope {
+        pubSub.publishAny(msg, sendToEachGroup = sendToEachGroup)
+        expectMsg(Mediator.Publish(topic, msg, sendToEachGroup))
+      }
 
-    "unsubscribe" in new Scope {
-      pubSub.unsubscribe[Msg.type](ref, Some(group))
-      expectMsg(Mediator.Unsubscribe(topic, Some(group), ref))
-      lastSender shouldEqual probe.ref
+      s"publish, sendToEachGroup: $sendToEachGroup" in new Scope {
+        pubSub.publish(msg, sendToEachGroup = sendToEachGroup)
+        expectMsgPF() { case Mediator.Publish(`topic`, ToBytesAble.Raw(`msg`, _), `sendToEachGroup`) => msg }
+      }
     }
 
     "topics" in new Scope {
@@ -38,14 +71,8 @@ class PubSubSpec extends WordSpec with ActorSpec with Matchers {
   }
 
   private trait Scope extends ActorScope {
-    val group = "group"
-    val topic = "topic"
     val probe = TestProbe()
     def ref = probe.ref
     val pubSub = PubSub(testActor, ActorLog.empty)
-
-    case object Msg
-
-    implicit val MsgTopic: Topic[Msg.type] = Topic[Msg.type](topic)
   }
 }

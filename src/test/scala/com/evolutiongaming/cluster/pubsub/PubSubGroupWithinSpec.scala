@@ -18,7 +18,7 @@ class PubSubGroupWithinSpec extends WordSpec with ActorSpec with Matchers {
   }
 
   private trait Scope extends ActorScope {
-    val pubSub = PubSub.Proxy(testActor)
+    val pubSub = PubSub.proxy(testActor)
     implicit val topic = Topic[String]("test")
 
     val createGroupWithin: GroupWithin.Create = new GroupWithin.Create {

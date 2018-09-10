@@ -66,7 +66,7 @@ object PublishGroupWithin {
 
   object Proxy {
 
-    def apply[T](ref: ActorRef)(implicit topic: Topic[T]): Proxy[T] = Proxy[T](PubSub.Proxy(ref))
+    def apply[T](ref: ActorRef)(implicit topic: Topic[T]): Proxy[T] = Proxy[T](PubSub.proxy(ref))
 
     def apply[T](pubSub: PubSub)(implicit topic: Topic[T]): Proxy[T] = new Proxy[T](pubSub)
   }

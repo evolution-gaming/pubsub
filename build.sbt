@@ -39,6 +39,7 @@ libraryDependencies ++= Seq(
   Akka.Stream,
   Akka.ClusterTools,
   Akka.Testkit % Test,
+  sequentially,
   `safe-actor`,
   scalax,
   nel,
