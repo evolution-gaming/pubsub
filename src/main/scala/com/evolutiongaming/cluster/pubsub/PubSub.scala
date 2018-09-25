@@ -256,7 +256,7 @@ object PubSub {
     def subscribe[T](factory: ActorRefFactory, group: Option[String])(onMsg: OnMsg[T])
       (implicit topic: Topic[T], fromBytes: FromBytes[T], tag: ClassTag[T]) = {
 
-      optimiseSubscribe[T](onMsg) { onMsg =>
+      optimiseSubscribe[T](factory, onMsg) { (factory, onMsg) =>
         pubSub.subscribe[T](factory, group)(onMsg)
       }
     }

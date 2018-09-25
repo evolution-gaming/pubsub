@@ -1,6 +1,6 @@
 package com.evolutiongaming.cluster.pubsub
 
-import akka.actor.ActorSystem
+import akka.actor.{Actor, ActorRefFactory, ActorSystem, Props}
 import com.evolutiongaming.cluster.pubsub.PubSub.{OnMsg, Unsubscribe}
 import com.evolutiongaming.concurrent.AvailableProcessors
 import com.evolutiongaming.concurrent.sequentially.{MapDirective, SequentialMap, Sequentially}
@@ -11,39 +11,51 @@ import scala.concurrent.ExecutionContext
 import scala.util.control.NonFatal
 
 trait OptimiseSubscribe {
-  def apply[T: Topic](onMsg: OnMsg[T])(subscribe: OnMsg[T] => Unsubscribe): Unsubscribe
+
+  def apply[A: Topic](
+    factory: ActorRefFactory,
+    onMsg: OnMsg[A])(
+    subscribe: (ActorRefFactory, OnMsg[A]) => Unsubscribe): Unsubscribe
 }
 
 object OptimiseSubscribe {
 
   val Empty: OptimiseSubscribe = new OptimiseSubscribe {
-    def apply[T: Topic](onMsg: OnMsg[T])(subscribe: OnMsg[T] => Unsubscribe) = subscribe(onMsg)
+    def apply[A: Topic](
+      factory: ActorRefFactory,
+      onMsg: OnMsg[A])(
+      subscribe: (ActorRefFactory, OnMsg[A]) => Unsubscribe) = subscribe(factory, onMsg)
   }
 
   type Listener = OnMsg[Any]
 
+
   def apply(system: ActorSystem): OptimiseSubscribe = {
     val sequentially = Sequentially(system, None, AvailableProcessors())
     val log = ActorLog(system, classOf[OptimiseSubscribe])
-    apply(sequentially, log)(system.dispatcher)
+    apply(sequentially, log, system)(system.dispatcher)
   }
 
-  def apply(sequentially: Sequentially[String], log: ActorLog)(implicit ec: ExecutionContext): OptimiseSubscribe = {
+  def apply(sequentially: Sequentially[String], log: ActorLog, factory: ActorRefFactory)(implicit ec: ExecutionContext): OptimiseSubscribe = {
     val map = SequentialMap[String, Subscription](sequentially)
-    apply(map, log)
+    apply(map, log, factory)
   }
 
-  def apply(map: SequentialMap[String, Subscription], log: ActorLog)
-    (implicit ec: ExecutionContext): OptimiseSubscribe = new OptimiseSubscribe {
+  def apply(map: SequentialMap[String, Subscription], log: ActorLog, factory: ActorRefFactory)
+    (implicit ec: ExecutionContext): OptimiseSubscribe = {
 
-    def apply[T](onMsg: OnMsg[T])(subscribe: OnMsg[T] => Unsubscribe)(implicit topic: Topic[T]): Unsubscribe = {
+    def optimise[A](
+      onMsg: OnMsg[A])(
+      subscribe: (ActorRefFactory, OnMsg[A]) => Unsubscribe)(implicit
+      topic: Topic[A]) = {
+
       val listener = onMsg.asInstanceOf[Listener]
 
       val result = map.updateUnit(topic.name) { subscription =>
         val updated = subscription match {
           case Some(subscription) => subscription + listener
           case None               =>
-            val unsubscribe = subscribe { (msg: T, sender) =>
+            val tmp: OnMsg[A] = (msg: A, sender) => {
               for {
                 subscription <- map.getNow(topic.name)
                 listener <- subscription.listeners
@@ -53,6 +65,8 @@ object OptimiseSubscribe {
                 case NonFatal(failure) => log.error(s"onMsg failed for $topic: $failure", failure)
               }
             }
+
+            val unsubscribe = subscribe(factory, tmp)
             Subscription(unsubscribe, listener :: Nel)
         }
         MapDirective.update(updated)
@@ -81,10 +95,30 @@ object OptimiseSubscribe {
         }
       }
     }
+
+    new OptimiseSubscribe {
+
+      def apply[A: Topic](
+        factory: ActorRefFactory,
+        onMsg: OnMsg[A])(
+        subscribe: (ActorRefFactory, OnMsg[A]) => Unsubscribe) = {
+
+        val unsubscribe = optimise(onMsg)(subscribe)
+
+        def actor() = new Actor {
+          def receive = PartialFunction.empty
+          override def postStop() = unsubscribe()
+        }
+
+        factory.actorOf(Props(actor))
+        unsubscribe
+      }
+    }
   }
 
 
-  final case class Subscription(unsubscribe: Unsubscribe, listeners: Nel[Listener]) { self =>
+  final case class Subscription(unsubscribe: Unsubscribe, listeners: Nel[Listener]) {
+    self =>
 
     def +(listener: Listener): Subscription = copy(listeners = listener :: listeners)
 
