@@ -99,18 +99,19 @@ object OptimiseSubscribe {
     new OptimiseSubscribe {
 
       def apply[A: Topic](
-        factory: ActorRefFactory,
+        factorySubscribe: ActorRefFactory,
         onMsg: OnMsg[A])(
         subscribe: (ActorRefFactory, OnMsg[A]) => Unsubscribe) = {
 
         val unsubscribe = optimise(onMsg)(subscribe)
 
-        def actor() = new Actor {
-          def receive = PartialFunction.empty
-          override def postStop() = unsubscribe()
+        if (factorySubscribe != factory) {
+          def actor() = new Actor {
+            def receive = PartialFunction.empty
+            override def postStop() = unsubscribe()
+          }
+          factorySubscribe.actorOf(Props(actor()))
         }
-
-        factory.actorOf(Props(actor))
         unsubscribe
       }
     }
