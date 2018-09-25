@@ -55,7 +55,7 @@ object OptimiseSubscribe {
         val updated = subscription match {
           case Some(subscription) => subscription + listener
           case None               =>
-            val tmp: OnMsg[A] = (msg: A, sender) => {
+            val onMsg: OnMsg[A] = (msg: A, sender) => {
               for {
                 subscription <- map.getNow(topic.name)
                 listener <- subscription.listeners
@@ -66,7 +66,7 @@ object OptimiseSubscribe {
               }
             }
 
-            val unsubscribe = subscribe(factory, tmp)
+            val unsubscribe = subscribe(factory, onMsg)
             Subscription(unsubscribe, listener :: Nel)
         }
         MapDirective.update(updated)
@@ -118,8 +118,7 @@ object OptimiseSubscribe {
   }
 
 
-  final case class Subscription(unsubscribe: Unsubscribe, listeners: Nel[Listener]) {
-    self =>
+  final case class Subscription(unsubscribe: Unsubscribe, listeners: Nel[Listener]) { self =>
 
     def +(listener: Listener): Subscription = copy(listeners = listener :: listeners)
 
