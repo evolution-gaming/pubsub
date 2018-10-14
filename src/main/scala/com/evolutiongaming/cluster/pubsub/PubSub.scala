@@ -346,7 +346,7 @@ object PubSub {
         case tag(x)                     => In.Msg(x)
       }
 
-      final case class Msg[T](msg: T) extends In[T]
+      final case class Msg[+T](msg: T) extends In[T]
       case object Subscribed extends In[Nothing]
       case object Unsubscribed extends In[Nothing]
     }
