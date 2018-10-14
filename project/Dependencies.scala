@@ -3,7 +3,7 @@ import sbt._
 object Dependencies {
 
   object Akka {
-    private val version = "2.5.16"
+    private val version = "2.5.17"
     val Actor        = "com.typesafe.akka" %% "akka-actor" % version
     val ClusterTools = "com.typesafe.akka" %% "akka-cluster-tools" % version
     val Testkit      = "com.typesafe.akka" %% "akka-testkit" % version

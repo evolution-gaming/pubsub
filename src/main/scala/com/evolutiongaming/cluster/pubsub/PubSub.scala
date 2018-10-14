@@ -97,7 +97,8 @@ object PubSub {
         val setup: SetupActor[In[T]] = ctx => {
           val behavior = Behavior.stateless[In[T]] {
             case Signal.Msg(msg, sender) => msg match {
-              case In.Subscribed => log.debug(s"subscribed ${ ctx.self }")
+              case In.Subscribed   => log.debug(s"subscribed ${ ctx.self }")
+              case In.Unsubscribed => log.debug(s"unsubscribed ${ ctx.self }")
               case In.Msg(msg)   =>
                 log.debug(s"receive $msg")
                 try onMsg(msg, sender) catch {
@@ -112,14 +113,7 @@ object PubSub {
           (behavior, logListener)
         }
 
-        val unapply = Unapply.pf[In[T]] {
-          case _: Mediator.SubscribeAck => In.Subscribed
-          case In.Msg(tag(x))           => In.Msg(x)
-          case In.Subscribed            => In.Subscribed
-          case tag(x)                   => In.Msg(x)
-        }
-
-        val ref = SafeActorRef(setup)(factory, unapply)
+        val ref = SafeActorRef(setup)(factory, Subscription.In.unapplyOf[T])
         subscribeAny(ref.unsafe, group)
       }
 
@@ -342,8 +336,19 @@ object PubSub {
     sealed trait In[+T]
 
     object In {
+
+      def unapplyOf[T](implicit tag: ClassTag[T]): Unapply[In[T]] = Unapply.pf[In[T]] {
+        case In.Msg(tag(x))             => In.Msg(x)
+        case _: Mediator.SubscribeAck   => In.Subscribed
+        case _: Mediator.UnsubscribeAck => In.Unsubscribed
+        case In.Subscribed              => In.Subscribed
+        case In.Unsubscribed            => In.Unsubscribed
+        case tag(x)                     => In.Msg(x)
+      }
+
       final case class Msg[T](msg: T) extends In[T]
       case object Subscribed extends In[Nothing]
+      case object Unsubscribed extends In[Nothing]
     }
   }
 }
