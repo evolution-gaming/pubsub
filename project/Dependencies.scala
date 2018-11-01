@@ -10,13 +10,13 @@ object Dependencies {
     val Stream       = "com.typesafe.akka" %% "akka-stream" % version
   }
 
-  val `safe-actor` = "com.evolutiongaming" %% "safe-actor" % "1.7"
+  val `safe-actor` = "com.evolutiongaming" %% "safe-actor" % "2.0.0"
 
   val `akka-serialization` = "com.evolutiongaming" %% "akka-serialization" % "0.0.3"
 
   val scalax = "com.github.t3hnar" %% "scalax" % "3.4"
 
-  val nel = "com.evolutiongaming" %% "nel" % "1.3.2"
+  val nel = "com.evolutiongaming" %% "nel" % "1.3.3"
 
   val `metric-tools` = "com.evolutiongaming" %% "metric-tools" % "1.1"
 
