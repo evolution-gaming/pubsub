@@ -43,7 +43,7 @@ class DistributedPubSubMediatorSerializing(
     val bufferSize = Int.MaxValue
     Source
       .queue[SerializationTask](bufferSize, strategy)
-      .groupBy(maxSubstreams, elem => math.abs(elem.topic.hashCode) % maxSubstreams)
+      .groupBy(maxSubstreams, elem => math.abs(elem.topic.hashCode % maxSubstreams))
       .buffer(bufferSize, strategy)
       .mapAsync(1)(_.serialize)
       .to(selfSink)

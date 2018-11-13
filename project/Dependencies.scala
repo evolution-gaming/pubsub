@@ -3,14 +3,14 @@ import sbt._
 object Dependencies {
 
   object Akka {
-    private val version = "2.5.17"
+    private val version = "2.5.18"
     val Actor        = "com.typesafe.akka" %% "akka-actor" % version
     val ClusterTools = "com.typesafe.akka" %% "akka-cluster-tools" % version
     val Testkit      = "com.typesafe.akka" %% "akka-testkit" % version
     val Stream       = "com.typesafe.akka" %% "akka-stream" % version
   }
 
-  val `safe-actor` = "com.evolutiongaming" %% "safe-actor" % "2.0.0"
+  val `safe-actor` = "com.evolutiongaming" %% "safe-actor" % "2.0.3"
 
   val `akka-serialization` = "com.evolutiongaming" %% "akka-serialization" % "0.0.3"
 
@@ -22,5 +22,5 @@ object Dependencies {
 
   val scalatest = "org.scalatest" %% "scalatest" % "3.0.5"
 
-  val sequentially = "com.evolutiongaming" %% "sequentially" % "1.0.12"
+  val sequentially = "com.evolutiongaming" %% "sequentially" % "1.0.13"
 }
