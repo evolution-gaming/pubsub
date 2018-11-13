@@ -22,5 +22,5 @@ object Dependencies {
 
   val scalatest = "org.scalatest" %% "scalatest" % "3.0.5"
 
-  val sequentially = "com.evolutiongaming" %% "sequentially" % "1.0.13"
+  val sequentially = "com.evolutiongaming" %% "sequentially" % "1.0.14"
 }

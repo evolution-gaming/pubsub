@@ -120,7 +120,7 @@ class DistributedPubSubMediatorSerializing(
 
 object DistributedPubSubMediatorSerializing {
 
-  private val Parallelism = Runtime.getRuntime.availableProcessors
+  private val Parallelism = (Runtime.getRuntime.availableProcessors max 1) * 2
 
   def props(
     settings: DistributedPubSubSettings,
