@@ -54,16 +54,16 @@ object GroupWithin {
 
         def errorMsg = s"Failed to enqueue msg $value"
 
-        def failed(message: String, cause: Option[Throwable]) = {
-          Future.failed(new QueueException(message, cause))
+        def failed[A](message: String, cause: Option[Throwable]) = {
+          Future.failed[A](new QueueException(message, cause))
         }
 
         queue.offer(value) flatMap {
           case QueueOfferResult.Enqueued         => futureUnit
           case QueueOfferResult.Failure(failure) => failed(errorMsg, Some(failure))
           case failure                           => failed(s"$errorMsg $failure", None)
-        } recover {
-          case failure => failed(errorMsg, Some(failure))
+        } recoverWith { case failure =>
+          failed(errorMsg, Some(failure))
         }
       }
 
