@@ -12,14 +12,14 @@ trait PublishGroupWithin[-T] {
 
 object PublishGroupWithin {
 
-  def apply[T](
+  def apply[A](
     pubSub: PubSub,
     createGroupWithin: GroupWithin.Create,
     log: ActorLog)(
-    fold: Nel[T] => T)(
-    implicit topic: Topic[T], toBytes: ToBytes[T]): PublishGroupWithin[T] = {
+    fold: Nel[A] => A)(
+    implicit topic: Topic[A], toBytes: ToBytes[A]): PublishGroupWithin[A] = {
 
-    val groupWithin = createGroupWithin[WithSender[T]] { msgs =>
+    val groupWithin = createGroupWithin[WithSender[A]] { msgs =>
       val msg = fold(msgs map { _.msg })
       val sender = msgs.head.sender
       pubSub.publish(msg, sender)
@@ -28,14 +28,14 @@ object PublishGroupWithin {
     apply(groupWithin, log, topic)
   }
 
-  def any[T](
+  def any[A](
     pubSub: PubSub,
     createGroupWithin: GroupWithin.Create,
     log: ActorLog)(
-    fold: Nel[T] => T)(
-    implicit topic: Topic[T]): PublishGroupWithin[T] = {
+    fold: Nel[A] => A)(
+    implicit topic: Topic[A]): PublishGroupWithin[A] = {
 
-    val groupWithin = createGroupWithin[WithSender[T]] { msgs =>
+    val groupWithin = createGroupWithin[WithSender[A]] { msgs =>
       val msg = fold(msgs map { _.msg })
       val sender = msgs.head.sender
       pubSub.publishAny(msg, sender)
@@ -44,10 +44,10 @@ object PublishGroupWithin {
     apply(groupWithin, log, topic)
   }
 
-  def apply[T](groupWithin: GroupWithin[WithSender[T]], log: ActorLog, topic: Topic[T]): PublishGroupWithin[T] = {
+  def apply[A](groupWithin: GroupWithin[WithSender[A]], log: ActorLog, topic: Topic[A]): PublishGroupWithin[A] = {
     implicit val ec = CurrentThreadExecutionContext
-    new PublishGroupWithin[T] {
-      def apply(msg: T, sender: Option[ActorRef]): Unit = {
+    new PublishGroupWithin[A] {
+      def apply(msg: A, sender: Option[ActorRef]): Unit = {
         val withSender = WithSender(msg, sender)
         groupWithin(withSender).failed.foreach { failure =>
           log.error(s"Failed to enqueue msg ${ msg.getClass.getName } at ${ topic.name } $failure", failure)
@@ -57,18 +57,18 @@ object PublishGroupWithin {
   }
 
 
-  def empty[T]: PublishGroupWithin[T] = Empty
+  def empty[A]: PublishGroupWithin[A] = Empty
 
 
-  class Proxy[-T](pubSub: PubSub)(implicit topic: Topic[T]) extends PublishGroupWithin[T] {
-    def apply(msg: T, sender: Option[ActorRef]): Unit = pubSub.publishAny(msg, sender)
+  class Proxy[-A](pubSub: PubSub)(implicit topic: Topic[A]) extends PublishGroupWithin[A] {
+    def apply(msg: A, sender: Option[ActorRef]): Unit = pubSub.publishAny(msg, sender)
   }
 
   object Proxy {
 
-    def apply[T](ref: ActorRef)(implicit topic: Topic[T]): Proxy[T] = Proxy[T](PubSub.proxy(ref))
+    def apply[A](ref: ActorRef)(implicit topic: Topic[A]): Proxy[A] = Proxy[A](PubSub.proxy(ref))
 
-    def apply[T](pubSub: PubSub)(implicit topic: Topic[T]): Proxy[T] = new Proxy[T](pubSub)
+    def apply[A](pubSub: PubSub)(implicit topic: Topic[A]): Proxy[A] = new Proxy[A](pubSub)
   }
 
 

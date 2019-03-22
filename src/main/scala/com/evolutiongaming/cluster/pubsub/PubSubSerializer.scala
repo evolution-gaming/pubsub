@@ -1,15 +1,16 @@
 package com.evolutiongaming.cluster.pubsub
 
 import java.io.NotSerializableException
-import java.lang.{Integer => JInt, Long => JLong}
-import java.nio.ByteBuffer
 
 import akka.cluster.pubsub.PubSubMsg
 import akka.serialization.SerializerWithStringManifest
 import com.evolutiongaming.serialization.SerializedMsg
-import com.evolutiongaming.serialization.SerializerHelper._
+import scodec.bits.ByteVector
+import scodec.codecs
+import scodec.codecs._
 
 class PubSubSerializer extends SerializerWithStringManifest {
+  import PubSubSerializer._
 
   private val MsgManifest = "A"
 
@@ -22,42 +23,40 @@ class PubSubSerializer extends SerializerWithStringManifest {
     }
   }
 
-  def toBinary(x: AnyRef): Bytes = {
+  def toBinary(x: AnyRef) = {
     x match {
-      case x: PubSubMsg => msgToBinary(x)
+      case x: PubSubMsg => msgToBinary(x).toByteArray
       case _            => illegalArgument(s"Cannot serialize message of ${ x.getClass } in ${ getClass.getName }")
     }
   }
 
-  def fromBinary(bytes: Bytes, manifest: String): AnyRef = {
+  def fromBinary(bytes: Array[Byte], manifest: String): AnyRef = {
     manifest match {
-      case MsgManifest => msgFromBinary(bytes)
+      case MsgManifest => msgFromBinary(ByteVector.view(bytes))
       case _           => notSerializable(s"Cannot deserialize message for manifest $manifest in ${ getClass.getName }")
     }
-  }
-
-  private def msgFromBinary(bytes: Bytes) = {
-    val buffer = ByteBuffer.wrap(bytes)
-    val identifier = buffer.getInt
-    val timestamp = buffer.getLong
-    val manifest = buffer.readString
-    val msgBytes = buffer.readBytes
-    PubSubMsg(SerializedMsg(identifier, manifest, msgBytes), timestamp)
-  }
-
-  private def msgToBinary(x: PubSubMsg) = {
-    val serializedMsg = x.serializedMsg
-    val manifest = serializedMsg.manifest.getBytes(Utf8)
-    val bytes = serializedMsg.bytes
-    val buffer = ByteBuffer.allocate(JInt.BYTES + JLong.BYTES + JInt.BYTES + manifest.length + JInt.BYTES + bytes.length)
-    buffer.putInt(serializedMsg.identifier)
-    buffer.putLong(x.timestamp)
-    buffer.writeBytes(manifest)
-    buffer.writeBytes(bytes)
-    buffer.array()
   }
 
   private def notSerializable(msg: String) = throw new NotSerializableException(msg)
 
   private def illegalArgument(msg: String) = throw new IllegalArgumentException(msg)
+}
+
+object PubSubSerializer {
+
+  private val codec = codecs.int32 ~ codecs.int64 ~ codecs.utf8_32 ~ codecs.int32 ~ codecs.bytes
+
+  private def msgFromBinary(bytes: ByteVector) = {
+    val attempt = codec.decode(bytes.bits)
+    val identifier ~ timestamp ~ manifest ~ length ~ bytes1 = attempt.require.value
+    val bytes2 = bytes1.take(length.toLong)
+    val serializedMsg = SerializedMsg(identifier, manifest, bytes2)
+    PubSubMsg(serializedMsg, timestamp)
+  }
+
+  private def msgToBinary(a: PubSubMsg) = {
+    val b = a.serializedMsg
+    val value = b.identifier ~ a.timestamp ~ b.manifest ~ b.bytes.length.toInt ~ b.bytes
+    codec.encode(value).require
+  }
 }

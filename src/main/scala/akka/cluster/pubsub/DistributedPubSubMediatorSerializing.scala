@@ -214,13 +214,13 @@ object DistributedPubSubMediatorSerializing {
 
   trait StreamHelper extends Actor with ActorLogging {
 
-    def selfSink[T]: Sink[(T, ActorRef), Future[Done]] = {
-      Sink.foreach[(T, ActorRef)] { case (x, sender) => self.tell(x, sender) }
+    def selfSink[A]: Sink[(A, ActorRef), Future[Done]] = {
+      Sink.foreach[(A, ActorRef)] { case (x, sender) => self.tell(x, sender) }
     }
 
-    implicit class SourceQueueWithCompleteOps[T](self: SourceQueueWithComplete[T]) {
+    implicit class SourceQueueWithCompleteOps[A](self: SourceQueueWithComplete[A]) {
 
-      def offerAndLog(elem: T, errorMsg: => String)(implicit ec: ExecutionContext): Unit = {
+      def offerAndLog(elem: A, errorMsg: => String)(implicit ec: ExecutionContext): Unit = {
         self.offer(elem) onComplete {
           case Success(QueueOfferResult.Enqueued)         =>
           case Success(QueueOfferResult.Failure(failure)) => log.error(failure, errorMsg)

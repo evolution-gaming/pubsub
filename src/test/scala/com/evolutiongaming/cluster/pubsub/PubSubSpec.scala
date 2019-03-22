@@ -57,7 +57,7 @@ class PubSubSpec extends WordSpec with ActorSpec with Matchers {
 
       s"publish, sendToEachGroup: $sendToEachGroup" in new Scope {
         pubSub.publish(msg, sendToEachGroup = sendToEachGroup)
-        expectMsgPF() { case Mediator.Publish(`topic`, ToBytesAble.Raw(`msg`, _), `sendToEachGroup`) => msg }
+        expectMsgPF() { case Mediator.Publish(`topic`, ToBytesAble.Raw(`msg`), `sendToEachGroup`) => msg }
       }
     }
 

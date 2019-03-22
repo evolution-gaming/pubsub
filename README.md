@@ -6,19 +6,19 @@
 ```scala
 trait PubSub {
 
-  def publishAny[T: Topic](msg: T, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false): Unit
+  def publishAny[A: Topic](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false): Unit
 
-  def subscribeAny[T: Topic: ClassTag](ref: ActorRef, group: Option[String] = None): Unsubscribe
+  def subscribeAny[A: Topic: ClassTag](ref: ActorRef, group: Option[String] = None): Unsubscribe
 
-  def subscribeAny[T: Topic: ClassTag](factory: ActorRefFactory)(onMsg: OnMsg[T]): Unsubscribe
+  def subscribeAny[A: Topic: ClassTag](factory: ActorRefFactory)(onMsg: OnMsg[A]): Unsubscribe
 
-  def subscribeAny[T: Topic: ClassTag](factory: ActorRefFactory, group: Option[String])(onMsg: OnMsg[T]): Unsubscribe
+  def subscribeAny[A: Topic: ClassTag](factory: ActorRefFactory, group: Option[String])(onMsg: OnMsg[A]): Unsubscribe
 
-  def publish[T: Topic: ToBytes](msg: T, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false): Unit
+  def publish[A: Topic: ToBytes](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false): Unit
 
-  def subscribe[T: Topic: FromBytes: ClassTag](factory: ActorRefFactory, group: Option[String] = None)(onMsg: OnMsg[T]): Unsubscribe
+  def subscribe[A: Topic: FromBytes: ClassTag](factory: ActorRefFactory, group: Option[String] = None)(onMsg: OnMsg[A]): Unsubscribe
 
-  def unsubscribe[T: Topic](ref: ActorRef, group: Option[String] = None): Unit
+  def unsubscribe[A: Topic](ref: ActorRef, group: Option[String] = None): Unit
 
   def topics(timeout: FiniteDuration = 3.seconds): Future[Set[String]]
 }
@@ -34,5 +34,5 @@ Check `DistributedPubSubMediatorSerializing.scala`
 ```scala
 resolvers += Resolver.bintrayRepo("evolutiongaming", "maven")
 
-libraryDependencies += "com.evolutiongaming" %% "pubsub" % "2.1.0"
+libraryDependencies += "com.evolutiongaming" %% "pubsub" % "3.0.0"
 ```

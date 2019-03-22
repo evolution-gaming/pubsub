@@ -25,6 +25,8 @@ libraryDependencies ++= Seq(
   Akka.Stream,
   Akka.ClusterTools,
   Akka.Testkit % Test,
+  Scodec.core,
+  Scodec.bits,
   sequentially,
   `safe-actor`,
   scalax,
