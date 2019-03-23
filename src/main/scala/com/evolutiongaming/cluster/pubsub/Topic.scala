@@ -2,8 +2,8 @@ package com.evolutiongaming.cluster.pubsub
 
 import scala.reflect.ClassTag
 
-final case class Topic[-T](name: String)
+final case class Topic[-A](name: String)
 
 object Topic {
-  def apply[T](implicit tag: ClassTag[T]): Topic[T] = apply(tag.runtimeClass.getName)
+  def apply[A](implicit tag: ClassTag[A]): Topic[A] = apply(tag.runtimeClass.getName)
 }

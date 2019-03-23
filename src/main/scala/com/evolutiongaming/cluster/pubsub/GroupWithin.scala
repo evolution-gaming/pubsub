@@ -9,14 +9,14 @@ import com.evolutiongaming.nel.Nel
 import scala.concurrent.Future
 import scala.concurrent.duration.FiniteDuration
 
-trait GroupWithin[-T] {
-  def apply(value: T): Future[Unit]
+trait GroupWithin[-A] {
+  def apply(value: A): Future[Unit]
   def stop(): Unit
 }
 
 object GroupWithin {
 
-  type Fold[T] = Nel[T] => Unit
+  type Fold[A] = Nel[A] => Unit
 
 
   private val futureUnit = Future.successful(())
@@ -27,35 +27,35 @@ object GroupWithin {
     def stop(): Unit = {}
   }
 
-  def empty[T]: GroupWithin[T] = Empty
+  def empty[A]: GroupWithin[A] = Empty
 
 
-  def apply[T](
+  def apply[A](
     settings: Settings,
     factory: ActorRefFactory)(
-    fold: Fold[T]): GroupWithin[T] = {
+    fold: Fold[A]): GroupWithin[A] = {
 
-    val folded = (msgs: Seq[T]) => {
+    val folded = (msgs: Seq[A]) => {
       Nel.opt(msgs) foreach { msgs => fold(msgs) }
     }
 
     implicit val materializer = ActorMaterializer(namePrefix = Some("GroupWithin"))(factory)
     val queue = Source
-      .queue[T](settings.buffer, OverflowStrategy.backpressure)
+      .queue[A](settings.buffer, OverflowStrategy.backpressure)
       .groupedWithin(settings.size, settings.delay)
       .to(Sink.foreach(folded))
       .run()
 
     implicit val ec = CurrentThreadExecutionContext
 
-    new GroupWithin[T] {
+    new GroupWithin[A] {
 
-      def apply(value: T): Future[Unit] = {
+      def apply(value: A): Future[Unit] = {
 
         def errorMsg = s"Failed to enqueue msg $value"
 
-        def failed[A](message: String, cause: Option[Throwable]) = {
-          Future.failed[A](new QueueException(message, cause))
+        def failed[B](message: String, cause: Option[Throwable]) = {
+          Future.failed[B](new QueueException(message, cause))
         }
 
         queue.offer(value) flatMap {
@@ -85,12 +85,12 @@ object GroupWithin {
 
 
   trait Create {
-    def apply[T](fold: Fold[T]): GroupWithin[T]
+    def apply[A](fold: Fold[A]): GroupWithin[A]
   }
 
   object Create {
     lazy val Empty: Create = new Create {
-      def apply[T](fold: Fold[T]): GroupWithin[T] = GroupWithin.Empty
+      def apply[A](fold: Fold[A]): GroupWithin[A] = GroupWithin.Empty
     }
   }
 }

@@ -5,8 +5,8 @@ import com.evolutiongaming.concurrent.CurrentThreadExecutionContext
 import com.evolutiongaming.nel.Nel
 import com.evolutiongaming.safeakka.actor.{ActorLog, WithSender}
 
-trait PublishGroupWithin[-T] {
-  def apply(msg: T, sender: Option[ActorRef] = None): Unit
+trait PublishGroupWithin[-A] {
+  def apply(msg: A, sender: Option[ActorRef] = None): Unit
 }
 
 
