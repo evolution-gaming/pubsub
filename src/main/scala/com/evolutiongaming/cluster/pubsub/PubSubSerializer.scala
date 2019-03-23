@@ -6,7 +6,6 @@ import akka.cluster.pubsub.PubSubMsg
 import akka.serialization.SerializerWithStringManifest
 import com.evolutiongaming.serialization.SerializedMsg
 import scodec.bits.ByteVector
-import scodec.codecs
 import scodec.codecs._
 
 class PubSubSerializer extends SerializerWithStringManifest {
@@ -44,19 +43,19 @@ class PubSubSerializer extends SerializerWithStringManifest {
 
 object PubSubSerializer {
 
-  private val codec = codecs.int32 ~ codecs.int64 ~ codecs.utf8_32 ~ codecs.int32 ~ codecs.bytes
+  private val codec = int32 ~ int64 ~ utf8_32 ~ variableSizeBytes(int32, bytes)
 
   private def msgFromBinary(bytes: ByteVector) = {
     val attempt = codec.decode(bytes.bits)
-    val identifier ~ timestamp ~ manifest ~ length ~ bytes1 = attempt.require.value
-    val bytes2 = bytes1.take(length.toLong)
+    val identifier ~ timestamp ~ manifest ~ bytes1 = attempt.require.value
+    val bytes2 = bytes1
     val serializedMsg = SerializedMsg(identifier, manifest, bytes2)
     PubSubMsg(serializedMsg, timestamp)
   }
 
   private def msgToBinary(a: PubSubMsg) = {
     val b = a.serializedMsg
-    val value = b.identifier ~ a.timestamp ~ b.manifest ~ b.bytes.length.toInt ~ b.bytes
+    val value = b.identifier ~ a.timestamp ~ b.manifest ~ b.bytes
     codec.encode(value).require
   }
 }
