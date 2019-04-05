@@ -11,7 +11,7 @@ object Dependencies {
   val scalax               = "com.github.t3hnar" %% "scalax" % "3.4"
 
   object Akka {
-    private val version = "2.5.21"
+    private val version = "2.5.22"
     val Actor        = "com.typesafe.akka" %% "akka-actor" % version
     val ClusterTools = "com.typesafe.akka" %% "akka-cluster-tools" % version
     val Testkit      = "com.typesafe.akka" %% "akka-testkit" % version

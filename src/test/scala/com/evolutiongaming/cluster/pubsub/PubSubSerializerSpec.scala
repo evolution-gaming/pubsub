@@ -1,6 +1,5 @@
 package com.evolutiongaming.cluster.pubsub
 
-import akka.cluster.pubsub.PubSubMsg
 import com.evolutiongaming.serialization.SerializedMsg
 import org.scalatest.{FunSuite, Matchers}
 import scodec.bits.ByteVector

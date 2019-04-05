@@ -10,6 +10,7 @@ import akka.routing.RoutingLogic
 import akka.stream.scaladsl.{Sink, Source, SourceQueueWithComplete}
 import akka.stream.{ActorMaterializer, OverflowStrategy, QueueOfferResult}
 import com.codahale.metrics.MetricRegistry
+import com.evolutiongaming.cluster.pubsub.PubSubMsg
 import com.evolutiongaming.metrics.MetricName
 import com.evolutiongaming.safeakka.actor.Sender
 import com.evolutiongaming.serialization.{SerializedMsg, SerializedMsgExt}
@@ -27,8 +28,8 @@ import scala.util.{Failure, Success}
 class DistributedPubSubMediatorSerializing(
   settings: DistributedPubSubSettings,
   serialize: String => Boolean,
-  metricRegistry: MetricRegistry) extends DistributedPubSubMediator(settings)
-  with DistributedPubSubMediatorSerializing.StreamHelper {
+  metricRegistry: MetricRegistry
+) extends DistributedPubSubMediator(settings) with DistributedPubSubMediatorSerializing.StreamHelper {
 
   import DistributedPubSubMediatorSerializing._
   import context.dispatcher
@@ -231,5 +232,3 @@ object DistributedPubSubMediatorSerializing {
     }
   }
 }
-
-final case class PubSubMsg(serializedMsg: SerializedMsg, timestamp: Long)

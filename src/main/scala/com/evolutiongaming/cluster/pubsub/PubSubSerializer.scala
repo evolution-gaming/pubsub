@@ -2,7 +2,6 @@ package com.evolutiongaming.cluster.pubsub
 
 import java.io.NotSerializableException
 
-import akka.cluster.pubsub.PubSubMsg
 import akka.serialization.SerializerWithStringManifest
 import com.evolutiongaming.serialization.SerializedMsg
 import scodec.bits.ByteVector
