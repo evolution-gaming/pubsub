@@ -9,9 +9,7 @@ import akka.dispatch.Dispatchers
 import akka.routing.RoutingLogic
 import akka.stream.scaladsl.{Sink, Source, SourceQueueWithComplete}
 import akka.stream.{ActorMaterializer, OverflowStrategy, QueueOfferResult}
-import com.codahale.metrics.MetricRegistry
-import com.evolutiongaming.cluster.pubsub.PubSubMsg
-import com.evolutiongaming.metrics.MetricName
+import com.evolutiongaming.cluster.pubsub.{PubSub, PubSubMsg}
 import com.evolutiongaming.safeakka.actor.Sender
 import com.evolutiongaming.serialization.{SerializedMsg, SerializedMsgExt}
 
@@ -28,7 +26,7 @@ import scala.util.{Failure, Success}
 class DistributedPubSubMediatorSerializing(
   settings: DistributedPubSubSettings,
   serialize: String => Boolean,
-  metricRegistry: MetricRegistry
+  metrics: PubSub.Metrics
 ) extends DistributedPubSubMediator(settings) with DistributedPubSubMediatorSerializing.StreamHelper {
 
   import DistributedPubSubMediatorSerializing._
@@ -36,7 +34,6 @@ class DistributedPubSubMediatorSerializing(
 
   private val selfAddress = Cluster(context.system).selfAddress
   private val serializedMsgExt = SerializedMsgExt(context.system)
-  private val toBytesMeter = metricRegistry.meter("toBytes")
 
   private lazy val queue = {
     val strategy = OverflowStrategy.backpressure
@@ -78,10 +75,7 @@ class DistributedPubSubMediatorSerializing(
 
         val serialize = Future {
           val serializedMsg = serializedMsgExt.toMsg(msg)
-          val name = MetricName(topic)
-          val length = serializedMsg.bytes.length.toLong
-          toBytesMeter.mark(length)
-          metricRegistry.meter(s"$name.toBytes").mark(length)
+          metrics.toBytes(topic, serializedMsg.bytes.length)
           val pubSubMsg = PubSubMsg(serializedMsg, Platform.currentTime)
           result(pubSubMsg)
         } recover { case failure =>
@@ -107,7 +101,7 @@ class DistributedPubSubMediatorSerializing(
   }
 
   override def newTopicActor(encTopic: String): ActorRef = {
-    val props = TopicSerializing.props(settings, metricRegistry)
+    val props = TopicSerializing.props(settings, metrics)
     val ref = context.actorOf(props, name = encTopic)
     registerTopic(ref)
     ref
@@ -126,9 +120,10 @@ object DistributedPubSubMediatorSerializing {
   def props(
     settings: DistributedPubSubSettings,
     serialize: String => Boolean,
-    metricRegistry: MetricRegistry): Props = {
+    metrics: PubSub.Metrics
+  ): Props = {
 
-    def actor = new DistributedPubSubMediatorSerializing(settings, serialize, metricRegistry)
+    def actor = new DistributedPubSubMediatorSerializing(settings, serialize, metrics)
 
     Props(actor).withDeploy(Deploy.local)
   }
@@ -136,8 +131,9 @@ object DistributedPubSubMediatorSerializing {
   def apply(
     system: ActorSystem,
     serialize: String => Boolean,
-    metricRegistry: MetricRegistry,
-    name: String = "distributedPubSubMediatorOverride"): ActorRef = {
+    metrics: PubSub.Metrics,
+    name: String = "distributedPubSubMediatorOverride"
+  ): ActorRef = {
 
     val settings = DistributedPubSubSettings(system)
     val dispatcher = system.settings.config.getString("akka.cluster.pub-sub.use-dispatcher") match {
@@ -145,7 +141,7 @@ object DistributedPubSubMediatorSerializing {
       case id => id
     }
 
-    val props = this.props(settings, serialize, metricRegistry).withDispatcher(dispatcher)
+    val props = this.props(settings, serialize, metrics).withDispatcher(dispatcher)
     system.asInstanceOf[ExtendedActorSystem].systemActorOf(props, name)
   }
 
@@ -156,16 +152,14 @@ object DistributedPubSubMediatorSerializing {
   class TopicSerializing(
     emptyTimeToLive: FiniteDuration,
     routingLogic: RoutingLogic,
-    metricRegistry: MetricRegistry) extends Topic(emptyTimeToLive, routingLogic) with ActorLogging with StreamHelper {
+    metrics: PubSub.Metrics,
+  ) extends Topic(emptyTimeToLive, routingLogic) with ActorLogging with StreamHelper {
 
     import context.dispatcher
 
     private val serializedMsgExt = SerializedMsgExt(context.system)
 
     private val topic = toTopic(self.path.toStringWithoutAddress)
-
-    private val latencyHistogram = metricRegistry.histogram("latency")
-    private val fromBytesMeter = metricRegistry.meter("fromBytes")
 
     private lazy val queue = {
       Source
@@ -184,14 +178,11 @@ object DistributedPubSubMediatorSerializing {
 
     private def onBytes(serializedMsg: SerializedMsg, timestamp: Long) = {
       val latency = Platform.currentTime - timestamp
-      val name = MetricName(topic)
-      latencyHistogram.update(latency)
-      metricRegistry.histogram(s"$name.latency").update(latency)
+      metrics.latency(topic, latency)
       val sender = this.sender()
       val deserialize = Future {
         val length = serializedMsg.bytes.length.toLong
-        fromBytesMeter.mark(length)
-        metricRegistry.meter(s"$name.fromBytes").mark(length)
+        metrics.fromBytes(topic, length)
         val msg = serializedMsgExt.fromMsg(serializedMsg).get
         val result = (msg, sender)
         Some(result)
@@ -205,8 +196,8 @@ object DistributedPubSubMediatorSerializing {
   }
 
   object TopicSerializing {
-    def props(settings: DistributedPubSubSettings, metricRegistry: MetricRegistry): Props = {
-      def actor = new TopicSerializing(settings.removedTimeToLive, settings.routingLogic, metricRegistry)
+    def props(settings: DistributedPubSubSettings, metrics: PubSub.Metrics): Props = {
+      def actor = new TopicSerializing(settings.removedTimeToLive, settings.routingLogic, metrics)
 
       Props(actor)
     }

@@ -50,16 +50,16 @@ object PubSub {
 
     def topics(timeout: FiniteDuration) = Future.successful(Set.empty)
   }
-  
+
 
   def apply(
     system: ActorSystem,
-    registry: MetricRegistry,
+    metrics: Metrics,
     serialize: String => Boolean = _ => false
   ): PubSub = {
 
     val ref = if (system hasExtension Cluster) {
-      DistributedPubSubMediatorSerializing(system, serialize, registry)
+      DistributedPubSubMediatorSerializing(system, serialize, metrics)
     } else {
       system.actorOf(LocalPubSub.props)
     }
@@ -196,6 +196,88 @@ object PubSub {
   }
 
 
+  trait Metrics {
+
+    def subscribe(topic: String): Unit
+
+    def unsubscribe(topic: String): Unit
+
+    def publish(topic: String): Unit
+
+    def toBytes(topic: String, size: Long): Unit
+
+    def fromBytes(topic: String, size: Long): Unit
+
+    def latency(topic: String, latencyMs: Long): Unit
+  }
+
+  object Metrics {
+
+    def empty: Metrics = new Metrics {
+
+      def subscribe(topic: String) = {}
+
+      def unsubscribe(topic: String) = {}
+
+      def publish(topic: String) = {}
+
+      def toBytes(topic: String, size: Long) = {}
+
+      def fromBytes(topic: String, size: Long) = {}
+
+      def latency(topic: String, latencyMs: Long) = {}
+    }
+    
+
+    def codahale(registry: MetricRegistry): Metrics = {
+
+      def nameOf(topic: String) = MetricName(topic)
+
+      val toBytesMeter = registry.meter("toBytes")
+
+      val fromBytesMeter = registry.meter("fromBytes")
+
+      val latencyHistogram = registry.histogram("latency")
+
+      new Metrics {
+
+        def subscribe(topic: String) = {
+          val name = nameOf(topic)
+          registry.counter(s"$name.subscriptions").inc()
+        }
+
+        def unsubscribe(topic: String) = {
+          val name = nameOf(topic)
+          registry.counter(s"$name.subscriptions").dec()
+        }
+
+        def publish(topic: String) = {
+          val name = nameOf(topic)
+          registry.meter(s"$name.publish").mark()
+        }
+
+        def toBytes(topic: String, size: Long) = {
+          val name = nameOf(topic)
+          toBytesMeter.mark(size)
+          registry.meter(s"$name.toBytes").mark(size)
+        }
+
+        def fromBytes(topic: String, size: Long) = {
+          val name = nameOf(topic)
+          fromBytesMeter.mark(size)
+          registry.meter(s"$name.fromBytes").mark(size)
+        }
+
+        def latency(topic: String, latencyMs: Long) = {
+          val name = nameOf(topic)
+          latencyHistogram.update(latencyMs)
+          registry.histogram(s"$name.latency").update(latencyMs)
+        }
+      }
+    }
+  }
+
+
   implicit class PubSubOps(val self: PubSub) extends AnyVal {
 
     def withOptimiseSubscribe(optimiseSubscribe: OptimiseSubscribe): PubSub = {
@@ -216,9 +298,7 @@ object PubSub {
     }
 
 
-    def withMetrics(pubSub: PubSub, registry: MetricRegistry): PubSub = {
-
-      def nameOf[A](topic: Topic[A]) = MetricName(topic.name)
+    def withMetrics(pubSub: PubSub, metrics: Metrics): PubSub = {
 
       new PubSub {
 
@@ -228,9 +308,8 @@ object PubSub {
           sendToEachGroup: Boolean = false)(implicit
           topic: Topic[A],
           toBytes: ToBytes[A]
-        ): Unit = {
-          val name = nameOf(topic)
-          registry.meter(s"$name.publish").mark()
+        ) = {
+          metrics.publish(topic.name)
           pubSub.publish(msg, sender, sendToEachGroup)
         }
 
@@ -240,20 +319,16 @@ object PubSub {
           topic: Topic[A],
           fromBytes: FromBytes[A],
           tag: ClassTag[A]
-        ): Unsubscribe = {
-          val name = nameOf(topic)
-          registry.counter(s"$name.subscriptions").inc()
+        ) = {
           val unsubscribe = pubSub.subscribe(group)(onMsg)
-
+          metrics.subscribe(topic.name)
           () => {
-            registry.counter(s"$name.subscriptions").dec()
+            metrics.unsubscribe(topic.name)
             unsubscribe()
           }
         }
 
-        def topics(timeout: FiniteDuration): Future[Set[String]] = {
-          pubSub.topics(timeout)
-        }
+        def topics(timeout: FiniteDuration) = pubSub.topics(timeout)
       }
     }
   }
