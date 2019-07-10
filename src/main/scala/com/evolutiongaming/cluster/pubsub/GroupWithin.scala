@@ -10,30 +10,27 @@ import scala.concurrent.Future
 import scala.concurrent.duration.FiniteDuration
 
 trait GroupWithin[-A] {
+
   def apply(value: A): Future[Unit]
+  
   def stop(): Unit
 }
 
 object GroupWithin {
 
-  type Fold[A] = Nel[A] => Unit
+  def empty[A]: GroupWithin[A] = new GroupWithin[A] {
 
+    def apply(value: A) = Future.unit
 
-  private val futureUnit = Future.successful(())
-
-
-  private lazy val Empty = new GroupWithin[Any] {
-    def apply(value: Any): Future[Unit] = futureUnit
     def stop(): Unit = {}
   }
-
-  def empty[A]: GroupWithin[A] = Empty
 
 
   def apply[A](
     settings: Settings,
     factory: ActorRefFactory)(
-    fold: Fold[A]): GroupWithin[A] = {
+    fold: Nel[A] => Unit
+  ): GroupWithin[A] = {
 
     val folded = (msgs: Seq[A]) => {
       Nel.opt(msgs) foreach { msgs => fold(msgs) }
@@ -50,7 +47,7 @@ object GroupWithin {
 
     new GroupWithin[A] {
 
-      def apply(value: A): Future[Unit] = {
+      def apply(value: A) = {
 
         def errorMsg = s"Failed to enqueue msg $value"
 
@@ -59,7 +56,7 @@ object GroupWithin {
         }
 
         queue.offer(value) flatMap {
-          case QueueOfferResult.Enqueued         => futureUnit
+          case QueueOfferResult.Enqueued         => Future.unit
           case QueueOfferResult.Failure(failure) => failed(errorMsg, Some(failure))
           case failure                           => failed(s"$errorMsg $failure", None)
         } recoverWith { case failure =>
@@ -67,7 +64,7 @@ object GroupWithin {
         }
       }
 
-      def stop(): Unit = queue.complete()
+      def stop() = queue.complete()
     }
   }
 
@@ -85,12 +82,15 @@ object GroupWithin {
 
 
   trait Create {
-    def apply[A](fold: Fold[A]): GroupWithin[A]
+    def apply[A](fold: Nel[A] => Unit): GroupWithin[A]
   }
 
   object Create {
-    lazy val Empty: Create = new Create {
-      def apply[A](fold: Fold[A]): GroupWithin[A] = GroupWithin.Empty
+
+    def empty: Create = const(GroupWithin.empty)
+
+    def const(value: GroupWithin[Any]): Create = new Create {
+      def apply[A](fold: Nel[A] => Unit) = value
     }
   }
 }

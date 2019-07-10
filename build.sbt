@@ -27,12 +27,15 @@ libraryDependencies ++= Seq(
   Akka.Testkit % Test,
   Scodec.core,
   Scodec.bits,
+  Cats.core,
+  Cats.effect,
   sequentially,
   `safe-actor`,
   scalax,
   nel,
   `metric-tools`,
   `akka-serialization`,
+  `cats-helper`,
   scalatest % Test)
 
 licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT")))

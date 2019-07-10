@@ -7,6 +7,7 @@ object Dependencies {
   val nel                  = "com.evolutiongaming" %% "nel"                % "1.3.3"
   val `metric-tools`       = "com.evolutiongaming" %% "metric-tools"       % "1.1"
   val sequentially         = "com.evolutiongaming" %% "sequentially"       % "1.0.15"
+  val `cats-helper`        = "com.evolutiongaming" %% "cats-helper"        % "0.0.14"
   val scalatest            = "org.scalatest"       %% "scalatest"          % "3.0.8"
   val scalax               = "com.github.t3hnar"   %% "scalax"             % "3.4"
 
@@ -21,5 +22,11 @@ object Dependencies {
   object Scodec {
     val core = "org.scodec" %% "scodec-core" % "1.11.4"
     val bits = "org.scodec" %% "scodec-bits" % "1.1.12"
+  }
+
+  object Cats {
+    private val version = "1.6.1"
+    val core   = "org.typelevel" %% "cats-core"   % version
+    val effect = "org.typelevel" %% "cats-effect" % "1.3.1"
   }
 }

@@ -1,6 +1,6 @@
 package com.evolutiongaming.cluster.pubsub
 
-import akka.actor.{ActorRef, ActorRefFactory, ActorSystem}
+import akka.actor.{ActorPath, ActorRef, ActorRefFactory, ActorSystem}
 import akka.cluster.Cluster
 import akka.cluster.pubsub.{DistributedPubSubMediatorSerializing, DistributedPubSubMediator => Mediator}
 import akka.pattern._
@@ -17,28 +17,21 @@ import scala.reflect.ClassTag
 import scala.util.control.NonFatal
 
 trait PubSub {
-  import PubSub.{OnMsg, Unsubscribe}
+  import PubSub._
 
-  def publishAny[A: Topic](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false): Unit
+  def publish[A: Topic : ToBytes](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false): Unit
 
-  def subscribeAny[A: Topic: ClassTag](ref: ActorRef, group: Option[String] = None): Unsubscribe
-
-  def subscribeAny[A: Topic: ClassTag](factory: ActorRefFactory)(onMsg: OnMsg[A]): Unsubscribe
-
-  def subscribeAny[A: Topic: ClassTag](factory: ActorRefFactory, group: Option[String])(onMsg: OnMsg[A]): Unsubscribe
-
-  def publish[A: Topic: ToBytes](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false): Unit
-
-  def subscribe[A: Topic: FromBytes: ClassTag](factory: ActorRefFactory, group: Option[String] = None)(onMsg: OnMsg[A]): Unsubscribe
-
-  def unsubscribe[A: Topic](ref: ActorRef, group: Option[String] = None): Unit
+  def subscribe[A: Topic : FromBytes : ClassTag](
+    group: Option[String] = None)(
+    onMsg: OnMsg[A]
+  ): Unsubscribe
 
   def topics(timeout: FiniteDuration = 3.seconds): Future[Set[String]]
 }
 
 object PubSub {
 
-  type OnMsg[-A] = (A, Sender) => Unit
+  type OnMsg[-A] = (A, ActorPath) => Unit
 
   type Unsubscribe = () => Unit
 
@@ -47,10 +40,23 @@ object PubSub {
   }
 
 
+  def empty: PubSub = new PubSub {
+
+    def publish[A: Topic : ToBytes](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false) = {}
+
+    def subscribe[A: Topic : FromBytes : ClassTag](group: Option[String] = None)(onMsg: OnMsg[A]) = {
+      Unsubscribe.Empty
+    }
+
+    def topics(timeout: FiniteDuration) = Future.successful(Set.empty)
+  }
+  
+
   def apply(
     system: ActorSystem,
     registry: MetricRegistry,
-    serialize: String => Boolean = _ => false): PubSub = {
+    serialize: String => Boolean = _ => false
+  ): PubSub = {
 
     val ref = if (system hasExtension Cluster) {
       DistributedPubSubMediatorSerializing(system, serialize, registry)
@@ -58,13 +64,13 @@ object PubSub {
       system.actorOf(LocalPubSub.props)
     }
     val log = ActorLog(system, classOf[PubSub])
-    apply(ref, log)
+    apply(ref, log, system)
   }
 
 
-  def apply(pubSub: ActorRef, log: ActorLog): PubSub = new PubSub {
+  def apply(pubSub: ActorRef, log: ActorLog, factory: ActorRefFactory): PubSub = {
 
-    def publishAny[A](msg: A, sender: Option[ActorRef], sendToEachGroup: Boolean = false)
+    def publishRaw[A](msg: A, sender: Option[ActorRef], sendToEachGroup: Boolean)
       (implicit topic: Topic[A]): Unit = {
 
       val publish = Mediator.Publish(topic.name, msg, sendToEachGroup)
@@ -72,23 +78,12 @@ object PubSub {
       pubSub.tell(publish, sender getOrElse ActorRef.noSender)
     }
 
-    def subscribeAny[A](factory: ActorRefFactory)(onMsg: OnMsg[A])
-      (implicit topic: Topic[A], tag: ClassTag[A]): Unsubscribe = {
-
-      subscribeAny(factory, None)(onMsg)
-    }
-
-    def subscribeAny[A](ref: ActorRef, group: Option[String] = None)
-      (implicit topic: Topic[A], tag: ClassTag[A]): Unsubscribe = {
-
-      val subscribe = Mediator.Subscribe(topic.name, group, ref)
-      log.debug(s"subscribe $subscribe")
-      pubSub.tell(subscribe, ref)
-      () => unsubscribe(ref, group)
-    }
-
-    def subscribeAny[A](factory: ActorRefFactory, group: Option[String])(onMsg: OnMsg[A])
-      (implicit topic: Topic[A], tag: ClassTag[A]): Unsubscribe = {
+    def subscribeRaw[A](
+      group: Option[String])(
+      onMsg: OnMsg[A])(implicit
+      topic: Topic[A],
+      tag: ClassTag[A]
+    ): Unsubscribe = {
 
       import Subscription.In
 
@@ -99,13 +94,16 @@ object PubSub {
             case Signal.Msg(msg, sender) => msg match {
               case In.Subscribed   => log.debug(s"subscribed ${ ctx.self }")
               case In.Unsubscribed => log.debug(s"unsubscribed ${ ctx.self }")
-              case In.Msg(msg)   =>
+              case In.Msg(msg)     =>
                 log.debug(s"receive $msg")
-                try onMsg(msg, sender) catch {
+                try onMsg(msg, sender.path) catch {
                   case NonFatal(failure) => log.error(s"failure $failure", failure)
                 }
             }
-            case Signal.PostStop         => unsubscribe(ctx.self)
+            case Signal.PostStop         =>
+              val unsubscribe = Mediator.Unsubscribe(topic.name, group, ctx.self)
+              log.debug(s"unsubscribe $unsubscribe")
+              pubSub.tell(unsubscribe, ctx.self)
             case _                       =>
           }
 
@@ -114,218 +112,63 @@ object PubSub {
         }
 
         val ref = SafeActorRef(setup)(factory, Subscription.In.unapplyOf[A])
-        subscribeAny(ref.unsafe, group)
+        val subscribe = Mediator.Subscribe(topic.name, group, ref.unsafe)
+        log.debug(s"subscribe $subscribe")
+        pubSub.tell(subscribe, ref.unsafe)
+        () => factory.stop(ref.unsafe)
       }
 
       subscribe(log.prefixed(topic.name))
     }
 
-    def publish[A](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false)
-      (implicit topic: Topic[A], toBytes: ToBytes[A]): Unit = {
+    new PubSub {
 
-      val toBytesAble = ToBytesAble(msg)(toBytes.apply)
-      implicit val topicFinal = Topic[ToBytesAble](topic.name)
-      publishAny(toBytesAble, sender, sendToEachGroup)
-    }
+      def publish[A](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false)
+        (implicit topic: Topic[A], toBytes: ToBytes[A]): Unit = {
 
-    def subscribe[A](factory: ActorRefFactory, group: Option[String] = None)(onMsg: OnMsg[A])
-      (implicit topic: Topic[A], fromBytes: FromBytes[A], tag: ClassTag[A]): Unsubscribe = {
+        val toBytesAble = ToBytesAble(msg)(toBytes.apply)
+        implicit val topicFinal = Topic[ToBytesAble](topic.name)
+        publishRaw(toBytesAble, sender, sendToEachGroup)
+      }
 
-      implicit val topicFinal = Topic[ToBytesAble](topic.name)
+      def subscribe[A](group: Option[String] = None)(onMsg: OnMsg[A])
+        (implicit topic: Topic[A], fromBytes: FromBytes[A], tag: ClassTag[A]): Unsubscribe = {
 
-      val onToBytesAble: OnMsg[ToBytesAble]  = (msg: ToBytesAble, sender: ActorRef) => {
-        msg match {
-          case ToBytesAble.Bytes(bytes)  => onMsg(fromBytes(bytes), sender)
-          case ToBytesAble.Raw(tag(msg)) => onMsg(msg, sender)
-          case ToBytesAble.Raw(msg)      => log.warn(s"$topic: receive unexpected $msg")
+        implicit val topicFinal = Topic[ToBytesAble](topic.name)
+
+        val onToBytesAble: OnMsg[ToBytesAble] = (msg: ToBytesAble, sender: ActorPath) => {
+          msg match {
+            case ToBytesAble.Bytes(bytes)  => onMsg(fromBytes(bytes), sender)
+            case ToBytesAble.Raw(tag(msg)) => onMsg(msg, sender)
+            case ToBytesAble.Raw(msg)      => log.warn(s"$topic: receive unexpected $msg")
+          }
         }
+
+        subscribeRaw(group)(onToBytesAble)
       }
 
-      subscribeAny(factory, group)(onToBytesAble)
-    }
-
-    def unsubscribe[A](ref: ActorRef, group: Option[String] = None)(implicit topic: Topic[A]): Unit = {
-      val unsubscribe = Mediator.Unsubscribe(topic.name, group, ref)
-      log.debug(s"unsubscribe $unsubscribe")
-      pubSub.tell(unsubscribe, ref)
-    }
-
-    def topics(timeout: FiniteDuration): Future[Set[String]] = {
-      implicit val ec = CurrentThreadExecutionContext
-      implicit val t = Timeout(timeout)
-      pubSub.ask(Mediator.GetTopics).mapTo[Mediator.CurrentTopics] map { _.topics }
-    }
-  }
-
-
-  def apply(pubSub: PubSub, registry: MetricRegistry): PubSub = new PubSub {
-
-    def publishAny[A](msg: A, sender: Option[ActorRef], sendToEachGroup: Boolean = false)
-      (implicit topic: Topic[A]): Unit = {
-
-      markPublish(topic)
-      pubSub.publishAny(msg, sender, sendToEachGroup)
-    }
-
-    def subscribeAny[A](ref: ActorRef, group: Option[String])
-      (implicit topic: Topic[A], tag: ClassTag[A]): Unsubscribe = {
-
-      incSubscriptions(topic)
-      pubSub.subscribeAny(ref, group)
-    }
-
-    def subscribeAny[A](factory: ActorRefFactory)(onMsg: OnMsg[A])
-      (implicit topic: Topic[A], tag: ClassTag[A]): Unsubscribe = {
-
-      incSubscriptions(topic)
-      pubSub.subscribeAny(factory)(onMsg)
-    }
-
-    def subscribeAny[A](factory: ActorRefFactory, group: Option[String])(onMsg: OnMsg[A])
-      (implicit topic: Topic[A], tag: ClassTag[A]): Unsubscribe = {
-
-      incSubscriptions(topic)
-      pubSub.subscribeAny(factory, group)(onMsg)
-    }
-
-    def publish[A](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false)
-      (implicit topic: Topic[A], toBytes: ToBytes[A]): Unit = {
-
-      markPublish(topic)
-      pubSub.publish(msg, sender, sendToEachGroup)
-    }
-
-    def subscribe[A](factory: ActorRefFactory, group: Option[String] = None)(onMsg: OnMsg[A])
-      (implicit topic: Topic[A], fromBytes: FromBytes[A], tag: ClassTag[A]): Unsubscribe = {
-
-      incSubscriptions(topic)
-      pubSub.subscribe(factory, group)(onMsg)
-    }
-
-    def unsubscribe[A](ref: ActorRef, group: Option[String])(implicit topic: Topic[A]): Unit = {
-      val name = MetricName(topic.name)
-      registry.counter(s"$name.subscriptions").dec()
-      pubSub.unsubscribe(ref, group)
-    }
-
-    def topics(timeout: FiniteDuration): Future[Set[String]] = {
-      pubSub.topics(timeout)
-    }
-
-    private def incSubscriptions(topic: Topic[_]): Unit = {
-      val name = MetricName(topic.name)
-      registry.counter(s"$name.subscriptions").inc()
-    }
-
-    private def markPublish(topic: Topic[_]): Unit = {
-      val name = MetricName(topic.name)
-      registry.meter(s"$name.publish").mark()
-    }
-  }
-
-
-  def apply(pubSub: PubSub, optimiseSubscribe: OptimiseSubscribe): PubSub = new PubSub {
-
-    def publishAny[A: Topic](msg: A, sender: Option[Sender], sendToEachGroup: Boolean) = {
-      pubSub.publishAny(msg, sender, sendToEachGroup)
-    }
-
-    def subscribeAny[A: Topic : ClassTag](ref: Sender, group: Option[String]) = {
-      pubSub.subscribeAny(ref, group)
-    }
-
-    def subscribeAny[A: Topic : ClassTag](factory: ActorRefFactory)(onMsg: OnMsg[A]) = {
-      pubSub.subscribeAny(factory)(onMsg)
-    }
-
-    def subscribeAny[A: Topic : ClassTag](factory: ActorRefFactory, group: Option[String])(onMsg: OnMsg[A]) = {
-
-      pubSub.subscribeAny(factory, group)(onMsg)
-    }
-
-    def publish[A: Topic : ToBytes](msg: A, sender: Option[Sender], sendToEachGroup: Boolean) = {
-      pubSub.publish(msg, sender, sendToEachGroup)
-    }
-
-    def subscribe[A](factory: ActorRefFactory, group: Option[String])(onMsg: OnMsg[A])
-      (implicit topic: Topic[A], fromBytes: FromBytes[A], tag: ClassTag[A]) = {
-
-      optimiseSubscribe[A](factory, onMsg) { (factory, onMsg) =>
-        pubSub.subscribe[A](factory, group)(onMsg)
+      def topics(timeout: FiniteDuration): Future[Set[String]] = {
+        implicit val executor = CurrentThreadExecutionContext
+        implicit val timeout1 = Timeout(timeout)
+        pubSub.ask(Mediator.GetTopics).mapTo[Mediator.CurrentTopics] map { _.topics }
       }
     }
-
-    def unsubscribe[A: Topic](ref: Sender, group: Option[String]) = pubSub.unsubscribe(ref, group)
-
-    def topics(timeout: FiniteDuration) = pubSub.topics(timeout)
-  }
-
-
-  val Empty: PubSub = new PubSub {
-
-    def publishAny[A: Topic](msg: A, sender: Option[ActorRef], sendToEachGroup: Boolean = false) = {}
-
-    def subscribeAny[A: Topic: ClassTag](ref: ActorRef, group: Option[String] = None) = {
-      Unsubscribe.Empty
-    }
-
-    def subscribeAny[A: Topic: ClassTag](factory: ActorRefFactory)(onMsg: OnMsg[A]) = {
-      Unsubscribe.Empty
-    }
-
-    def subscribeAny[A: Topic: ClassTag](factory: ActorRefFactory, group: Option[String])
-      (onMsg: OnMsg[A]) = {
-
-      Unsubscribe.Empty
-    }
-
-    def publish[A: Topic: ToBytes](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false) = {}
-
-    def subscribe[A: Topic: FromBytes: ClassTag](factory: ActorRefFactory, group: Option[String] = None)
-      (onMsg: OnMsg[A]) = {
-
-      Unsubscribe.Empty
-    }
-
-    def unsubscribe[A: Topic](ref: ActorRef, group: Option[String] = None) = {}
-
-    def topics(timeout: FiniteDuration) = Future.successful(Set.empty)
   }
 
 
   def proxy(ref: ActorRef): PubSub = new PubSub {
 
-    def publishAny[A: Topic](msg: A, sender: Option[ActorRef], sendToEachGroup: Boolean = false) = {
+    def publish[A: Topic : ToBytes](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false) = {
       ref.tell(msg, sender getOrElse ActorRef.noSender)
     }
 
-    def subscribeAny[A: Topic: ClassTag](ref: ActorRef, group: Option[String] = None) = {
+    def subscribe[A: Topic : FromBytes : ClassTag](group: Option[String] = None)(onMsg: OnMsg[A]) = {
       Unsubscribe.Empty
     }
-
-    def subscribeAny[A: Topic: ClassTag](factory: ActorRefFactory)(onMsg: OnMsg[A]) = {
-      Unsubscribe.Empty
-    }
-
-    def subscribeAny[A: Topic: ClassTag](factory: ActorRefFactory, group: Option[String])(onMsg: OnMsg[A]) = {
-      Unsubscribe.Empty
-    }
-
-    def publish[A: Topic: ToBytes](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false) = {
-      ref.tell(msg, sender getOrElse ActorRef.noSender)
-    }
-
-    def subscribe[A: Topic: FromBytes: ClassTag](factory: ActorRefFactory, group: Option[String] = None)
-      (onMsg: OnMsg[A]) = {
-
-      Unsubscribe.Empty
-    }
-
-    def unsubscribe[A: Topic](ref: ActorRef, group: Option[String] = None) = {}
 
     def topics(timeout: FiniteDuration) = {
-      implicit val ec = CurrentThreadExecutionContext
-      implicit val t = Timeout(timeout)
+      implicit val executor = CurrentThreadExecutionContext
+      implicit val timeout1 = Timeout(timeout)
       ref.ask(Mediator.GetTopics).mapTo[Mediator.CurrentTopics] map { _.topics }
     }
   }
@@ -349,6 +192,69 @@ object PubSub {
       final case class Msg[+A](msg: A) extends In[A]
       case object Subscribed extends In[Nothing]
       case object Unsubscribed extends In[Nothing]
+    }
+  }
+
+
+  implicit class PubSubOps(val self: PubSub) extends AnyVal {
+
+    def withOptimiseSubscribe(optimiseSubscribe: OptimiseSubscribe): PubSub = {
+      new PubSub {
+
+        def publish[A: Topic : ToBytes](msg: A, sender: Option[Sender], sendToEachGroup: Boolean) = {
+          self.publish(msg, sender, sendToEachGroup)
+        }
+
+        def subscribe[A: Topic : FromBytes : ClassTag](group: Option[String])(onMsg: OnMsg[A]) = {
+          optimiseSubscribe[A](onMsg) { onMsg =>
+            self.subscribe[A](group)(onMsg)
+          }
+        }
+
+        def topics(timeout: FiniteDuration) = self.topics(timeout)
+      }
+    }
+
+
+    def withMetrics(pubSub: PubSub, registry: MetricRegistry): PubSub = {
+
+      def nameOf[A](topic: Topic[A]) = MetricName(topic.name)
+
+      new PubSub {
+
+        def publish[A](
+          msg: A,
+          sender: Option[ActorRef] = None,
+          sendToEachGroup: Boolean = false)(implicit
+          topic: Topic[A],
+          toBytes: ToBytes[A]
+        ): Unit = {
+          val name = nameOf(topic)
+          registry.meter(s"$name.publish").mark()
+          pubSub.publish(msg, sender, sendToEachGroup)
+        }
+
+        def subscribe[A](
+          group: Option[String] = None)(
+          onMsg: OnMsg[A])(implicit
+          topic: Topic[A],
+          fromBytes: FromBytes[A],
+          tag: ClassTag[A]
+        ): Unsubscribe = {
+          val name = nameOf(topic)
+          registry.counter(s"$name.subscriptions").inc()
+          val unsubscribe = pubSub.subscribe(group)(onMsg)
+
+          () => {
+            registry.counter(s"$name.subscriptions").dec()
+            unsubscribe()
+          }
+        }
+
+        def topics(timeout: FiniteDuration): Future[Set[String]] = {
+          pubSub.topics(timeout)
+        }
+      }
     }
   }
 }

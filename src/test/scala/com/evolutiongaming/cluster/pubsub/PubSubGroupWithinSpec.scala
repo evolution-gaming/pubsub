@@ -22,7 +22,7 @@ class PubSubGroupWithinSpec extends WordSpec with ActorSpec with Matchers {
     implicit val topic = Topic[String]("test")
 
     val createGroupWithin: GroupWithin.Create = new GroupWithin.Create {
-      def apply[A](fold: GroupWithin.Fold[A]) = new GroupWithin[A] {
+      def apply[A](fold: Nel[A] => Unit) = new GroupWithin[A] {
         def apply(value: A): Future[Unit] = Future.successful(fold(Nel(value)))
         def stop(): Unit = {}
       }

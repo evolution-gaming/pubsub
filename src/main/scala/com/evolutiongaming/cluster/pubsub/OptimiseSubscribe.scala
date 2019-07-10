@@ -1,6 +1,6 @@
 package com.evolutiongaming.cluster.pubsub
 
-import akka.actor.{Actor, ActorRefFactory, ActorSystem, Props}
+import akka.actor.ActorSystem
 import com.evolutiongaming.cluster.pubsub.PubSub.{OnMsg, Unsubscribe}
 import com.evolutiongaming.concurrent.AvailableProcessors
 import com.evolutiongaming.concurrent.sequentially.{MapDirective, SequentialMap, Sequentially}
@@ -13,18 +13,21 @@ import scala.util.control.NonFatal
 trait OptimiseSubscribe {
 
   def apply[A: Topic](
-    factory: ActorRefFactory,
     onMsg: OnMsg[A])(
-    subscribe: (ActorRefFactory, OnMsg[A]) => Unsubscribe): Unsubscribe
+    subscribe: OnMsg[A] => Unsubscribe
+  ): Unsubscribe
 }
 
 object OptimiseSubscribe {
 
   val Empty: OptimiseSubscribe = new OptimiseSubscribe {
+
     def apply[A: Topic](
-      factory: ActorRefFactory,
       onMsg: OnMsg[A])(
-      subscribe: (ActorRefFactory, OnMsg[A]) => Unsubscribe) = subscribe(factory, onMsg)
+      subscribe: OnMsg[A] => Unsubscribe
+    ) = {
+      subscribe(onMsg)
+    }
   }
 
   type Listener = OnMsg[Any]
@@ -33,92 +36,84 @@ object OptimiseSubscribe {
   def apply(system: ActorSystem): OptimiseSubscribe = {
     val sequentially = Sequentially(system, None, AvailableProcessors())
     val log = ActorLog(system, classOf[OptimiseSubscribe])
-    apply(sequentially, log, system)(system.dispatcher)
+    apply(sequentially, log)(system.dispatcher)
   }
 
-  def apply(sequentially: Sequentially[String], log: ActorLog, factory: ActorRefFactory)(implicit ec: ExecutionContext): OptimiseSubscribe = {
+  def apply(
+    sequentially: Sequentially[String],
+    log: ActorLog)(implicit
+    executor: ExecutionContext
+  ): OptimiseSubscribe = {
     val map = SequentialMap[String, Subscription](sequentially)
-    apply(map, log, factory)
+    apply(map, log)
   }
 
-  def apply(map: SequentialMap[String, Subscription], log: ActorLog, factory: ActorRefFactory)
-    (implicit ec: ExecutionContext): OptimiseSubscribe = {
-
-    def optimise[A](
-      onMsg: OnMsg[A])(
-      subscribe: (ActorRefFactory, OnMsg[A]) => Unsubscribe)(implicit
-      topic: Topic[A]) = {
-
-      val listener = onMsg.asInstanceOf[Listener]
-
-      val result = map.updateUnit(topic.name) { subscription =>
-        val updated = subscription match {
-          case Some(subscription) => subscription + listener
-          case None               =>
-            val onMsg: OnMsg[A] = (msg: A, sender) => {
-              for {
-                subscription <- map.getNow(topic.name)
-                listener <- subscription.listeners
-              } try {
-                listener(msg, sender)
-              } catch {
-                case NonFatal(failure) => log.error(s"onMsg failed for $topic: $failure", failure)
-              }
-            }
-
-            val unsubscribe = subscribe(factory, onMsg)
-            Subscription(unsubscribe, listener :: Nel)
-        }
-        MapDirective.update(updated)
-      }
-
-      result.failed.foreach { failure =>
-        log.error(s"failed to subscribe to $topic, $failure", failure)
-      }
-
-      () => {
-        val unsubscribe = for {
-          _ <- result
-          _ <- map.updateUnit(topic.name) {
-            case None               => MapDirective.ignore
-            case Some(subscription) => subscription - listener match {
-              case Some(subscription) => MapDirective.update(subscription)
-              case None               =>
-                subscription.unsubscribe()
-                MapDirective.remove
-            }
-          }
-        } yield {}
-
-        unsubscribe.failed.foreach { failure =>
-          log.error(s"failed to unsubscribe from $topic, $failure", failure)
-        }
-      }
-    }
+  def apply(
+    map: SequentialMap[String, Subscription],
+    log: ActorLog)(implicit
+    executor: ExecutionContext
+  ): OptimiseSubscribe = {
 
     new OptimiseSubscribe {
 
-      def apply[A: Topic](
-        factorySubscribe: ActorRefFactory,
+      def apply[A](
         onMsg: OnMsg[A])(
-        subscribe: (ActorRefFactory, OnMsg[A]) => Unsubscribe) = {
+        subscribe: OnMsg[A] => Unsubscribe)(implicit
+        topic: Topic[A]
+      ) = {
 
-        val unsubscribe = optimise(onMsg)(subscribe)
+        val listener = onMsg.asInstanceOf[Listener]
 
-        if (factorySubscribe != factory) {
-          def actor() = new Actor {
-            def receive = PartialFunction.empty
-            override def postStop() = unsubscribe()
+        val result = map.updateUnit(topic.name) { subscription =>
+          val updated = subscription match {
+            case Some(subscription) => subscription + listener
+            case None               =>
+              val onMsg: OnMsg[A] = (msg: A, sender) => {
+                for {
+                  subscription <- map.getNow(topic.name)
+                  listener <- subscription.listeners
+                } try {
+                  listener(msg, sender)
+                } catch {
+                  case NonFatal(failure) => log.error(s"onMsg failed for $topic: $failure", failure)
+                }
+              }
+
+              val unsubscribe = subscribe(onMsg)
+              Subscription(unsubscribe, listener :: Nel)
           }
-          factorySubscribe.actorOf(Props(actor()))
+          MapDirective.update(updated)
         }
-        unsubscribe
+
+        result.failed.foreach { failure =>
+          log.error(s"failed to subscribe to $topic, $failure", failure)
+        }
+
+        () => {
+          val unsubscribe = for {
+            _ <- result
+            _ <- map.updateUnit(topic.name) {
+              case None               => MapDirective.ignore
+              case Some(subscription) => subscription - listener match {
+                case Some(subscription) => MapDirective.update(subscription)
+                case None               =>
+                  subscription.unsubscribe()
+                  MapDirective.remove
+              }
+            }
+          } yield {}
+
+          unsubscribe.failed.foreach { failure =>
+            log.error(s"failed to unsubscribe from $topic, $failure", failure)
+          }
+        }
       }
     }
   }
 
 
-  final case class Subscription(unsubscribe: Unsubscribe, listeners: Nel[Listener]) { self =>
+  final case class Subscription(unsubscribe: Unsubscribe, listeners: Nel[Listener]) {
+    self =>
 
     def +(listener: Listener): Subscription = copy(listeners = listener :: listeners)
 
