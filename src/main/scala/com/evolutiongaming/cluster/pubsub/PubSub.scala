@@ -19,7 +19,11 @@ import scala.util.control.NonFatal
 trait PubSub {
   import PubSub._
 
-  def publish[A: Topic : ToBytes](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false): Unit
+  def publish[A: Topic : ToBytes](
+    msg: A,
+    sender: Option[ActorRef] = None,
+    sendToEachGroup: Boolean = false
+  ): Unit
 
   def subscribe[A: Topic : FromBytes : ClassTag](
     group: Option[String] = None)(

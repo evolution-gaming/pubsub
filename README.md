@@ -5,20 +5,18 @@
 
 ```scala
 trait PubSub {
+  import PubSub._
 
-  def publishAny[A: Topic](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false): Unit
+  def publish[A: Topic : ToBytes](
+    msg: A, 
+    sender: Option[ActorRef] = None, 
+    sendToEachGroup: Boolean = false
+  ): Unit
 
-  def subscribeAny[A: Topic: ClassTag](ref: ActorRef, group: Option[String] = None): Unsubscribe
-
-  def subscribeAny[A: Topic: ClassTag](factory: ActorRefFactory)(onMsg: OnMsg[A]): Unsubscribe
-
-  def subscribeAny[A: Topic: ClassTag](factory: ActorRefFactory, group: Option[String])(onMsg: OnMsg[A]): Unsubscribe
-
-  def publish[A: Topic: ToBytes](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false): Unit
-
-  def subscribe[A: Topic: FromBytes: ClassTag](factory: ActorRefFactory, group: Option[String] = None)(onMsg: OnMsg[A]): Unsubscribe
-
-  def unsubscribe[A: Topic](ref: ActorRef, group: Option[String] = None): Unit
+  def subscribe[A: Topic : FromBytes : ClassTag](
+    group: Option[String] = None)(
+    onMsg: OnMsg[A]
+  ): Unsubscribe
 
   def topics(timeout: FiniteDuration = 3.seconds): Future[Set[String]]
 }
@@ -34,5 +32,5 @@ Check `DistributedPubSubMediatorSerializing.scala`
 ```scala
 resolvers += Resolver.bintrayRepo("evolutiongaming", "maven")
 
-libraryDependencies += "com.evolutiongaming" %% "pubsub" % "3.0.0"
+libraryDependencies += "com.evolutiongaming" %% "pubsub" % "5.0.0"
 ```
