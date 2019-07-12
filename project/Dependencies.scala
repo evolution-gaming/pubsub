@@ -6,10 +6,10 @@ object Dependencies {
   val `akka-serialization` = "com.evolutiongaming" %% "akka-serialization" % "1.0.1"
   val nel                  = "com.evolutiongaming" %% "nel"                % "1.3.3"
   val `metric-tools`       = "com.evolutiongaming" %% "metric-tools"       % "1.1"
-  val sequentially         = "com.evolutiongaming" %% "sequentially"       % "1.0.15"
-  val `cats-helper`        = "com.evolutiongaming" %% "cats-helper"        % "0.0.14"
+  val `cats-helper`        = "com.evolutiongaming" %% "cats-helper"        % "0.0.18"
+  val scache               = "com.evolutiongaming" %% "scache"             % "0.0.6"
   val scalatest            = "org.scalatest"       %% "scalatest"          % "3.0.8"
-  val scalax               = "com.github.t3hnar"   %% "scalax"             % "3.4"
+  val scalax               = "com.github.t3hnar"   %% "scalax"             % "3.5"
 
   object Akka {
     private val version = "2.5.23"

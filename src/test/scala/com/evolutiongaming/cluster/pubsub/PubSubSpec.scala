@@ -2,6 +2,10 @@ package com.evolutiongaming.cluster.pubsub
 
 import akka.cluster.pubsub.{DistributedPubSubMediator => Mediator}
 import akka.testkit.TestProbe
+import cats.effect.IO
+import cats.implicits._
+import com.evolutiongaming.cluster.pubsub.IOSuite._
+import com.evolutiongaming.catshelper.EffectHelper._
 import com.evolutiongaming.safeakka.actor.ActorLog
 import com.evolutiongaming.serialization.ToBytesAble
 import org.scalatest.{Matchers, WordSpec}
@@ -21,9 +25,9 @@ class PubSubSpec extends WordSpec with ActorSpec with Matchers {
       group <- List(Some("group"), None)
     } {
       s"subscribe, group: $group" in new Scope {
-        val unsubscribe = pubSub.subscribe[Msg](group) { (_: Msg, _) => }
+        val (_, unsubscribe) = pubSub.subscribe[Msg](group) { (_: Msg, _) => ().pure[IO] }.allocated.toTry.get
         val subscriber = expectMsgPF() { case Mediator.Subscribe(`topic`, `group`, ref) => ref }
-        unsubscribe()
+        unsubscribe.toTry.get
         expectMsg(Mediator.Unsubscribe(topic, group, subscriber))
       }
     }
@@ -32,13 +36,13 @@ class PubSubSpec extends WordSpec with ActorSpec with Matchers {
       sendToEachGroup <- List(true, false)
     } {
       s"publish, sendToEachGroup: $sendToEachGroup" in new Scope {
-        pubSub.publish(msg, sendToEachGroup = sendToEachGroup)
+        pubSub.publish(msg, sendToEachGroup = sendToEachGroup).toFuture
         expectMsgPF() { case Mediator.Publish(`topic`, ToBytesAble.Raw(`msg`), `sendToEachGroup`) => msg }
       }
     }
 
     "topics" in new Scope {
-      val future = pubSub.topics()
+      val future = pubSub.topics().toFuture
       expectMsg(Mediator.GetTopics)
       val topics = Set("topic")
       lastSender ! Mediator.CurrentTopics(topics)
@@ -49,6 +53,6 @@ class PubSubSpec extends WordSpec with ActorSpec with Matchers {
   private trait Scope extends ActorScope {
     val probe = TestProbe()
     def ref = probe.ref
-    val pubSub = PubSub(testActor, ActorLog.empty, system)
+    val pubSub = PubSub[IO](testActor, ActorLog.empty, system)
   }
 }

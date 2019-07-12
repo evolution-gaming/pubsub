@@ -9,6 +9,7 @@ import akka.dispatch.Dispatchers
 import akka.routing.RoutingLogic
 import akka.stream.scaladsl.{Sink, Source, SourceQueueWithComplete}
 import akka.stream.{ActorMaterializer, OverflowStrategy, QueueOfferResult}
+import cats.Id
 import com.evolutiongaming.cluster.pubsub.{PubSub, PubSubMsg}
 import com.evolutiongaming.safeakka.actor.Sender
 import com.evolutiongaming.serialization.{SerializedMsg, SerializedMsgExt}
@@ -26,7 +27,7 @@ import scala.util.{Failure, Success}
 class DistributedPubSubMediatorSerializing(
   settings: DistributedPubSubSettings,
   serialize: String => Boolean,
-  metrics: PubSub.Metrics
+  metrics: PubSub.Metrics[Id]
 ) extends DistributedPubSubMediator(settings) with DistributedPubSubMediatorSerializing.StreamHelper {
 
   import DistributedPubSubMediatorSerializing._
@@ -120,7 +121,7 @@ object DistributedPubSubMediatorSerializing {
   def props(
     settings: DistributedPubSubSettings,
     serialize: String => Boolean,
-    metrics: PubSub.Metrics
+    metrics: PubSub.Metrics[Id]
   ): Props = {
 
     def actor = new DistributedPubSubMediatorSerializing(settings, serialize, metrics)
@@ -131,7 +132,7 @@ object DistributedPubSubMediatorSerializing {
   def apply(
     system: ActorSystem,
     serialize: String => Boolean,
-    metrics: PubSub.Metrics,
+    metrics: PubSub.Metrics[Id],
     name: String = "distributedPubSubMediatorOverride"
   ): ActorRef = {
 
@@ -152,7 +153,7 @@ object DistributedPubSubMediatorSerializing {
   class TopicSerializing(
     emptyTimeToLive: FiniteDuration,
     routingLogic: RoutingLogic,
-    metrics: PubSub.Metrics,
+    metrics: PubSub.Metrics[Id],
   ) extends Topic(emptyTimeToLive, routingLogic) with ActorLogging with StreamHelper {
 
     import context.dispatcher
@@ -196,7 +197,8 @@ object DistributedPubSubMediatorSerializing {
   }
 
   object TopicSerializing {
-    def props(settings: DistributedPubSubSettings, metrics: PubSub.Metrics): Props = {
+
+    def props(settings: DistributedPubSubSettings, metrics: PubSub.Metrics[Id]): Props = {
       def actor = new TopicSerializing(settings.removedTimeToLive, settings.routingLogic, metrics)
 
       Props(actor)

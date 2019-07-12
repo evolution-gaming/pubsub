@@ -1,125 +1,126 @@
 package com.evolutiongaming.cluster.pubsub
 
-import akka.actor.ActorSystem
-import com.evolutiongaming.cluster.pubsub.PubSub.{OnMsg, Unsubscribe}
-import com.evolutiongaming.concurrent.AvailableProcessors
-import com.evolutiongaming.concurrent.sequentially.{MapDirective, SequentialMap, Sequentially}
-import com.evolutiongaming.nel.Nel
-import com.evolutiongaming.safeakka.actor.ActorLog
+import cats.data.{NonEmptyList => Nel}
+import cats.effect.{Concurrent, Resource, Sync}
+import cats.implicits._
+import cats.temp.par._
+import com.evolutiongaming.cluster.pubsub.CatsHelper._
+import com.evolutiongaming.cluster.pubsub.PubSub.OnMsg
+import com.evolutiongaming.scache.SerialMap
 
-import scala.concurrent.ExecutionContext
-import scala.util.control.NonFatal
-
-trait OptimiseSubscribe {
+trait OptimiseSubscribe[F[_]] {
 
   def apply[A: Topic](
-    onMsg: OnMsg[A])(
-    subscribe: OnMsg[A] => Unsubscribe
-  ): Unsubscribe
+    onMsg: OnMsg[F, A])(
+    subscribe: OnMsg[F, A] => Resource[F, Unit]
+  ): Resource[F, Unit]
 }
 
 object OptimiseSubscribe {
 
-  val Empty: OptimiseSubscribe = new OptimiseSubscribe {
+  def empty[F[_]](): OptimiseSubscribe[F] = new OptimiseSubscribe[F] {
 
     def apply[A: Topic](
-      onMsg: OnMsg[A])(
-      subscribe: OnMsg[A] => Unsubscribe
+      onMsg: OnMsg[F, A])(
+      subscribe: OnMsg[F, A] => Resource[F, Unit]
     ) = {
       subscribe(onMsg)
     }
   }
 
-  type Listener = OnMsg[Any]
+
+  type Listener[F[_]] = OnMsg[F, Any]
 
 
-  def apply(system: ActorSystem): OptimiseSubscribe = {
-    val sequentially = Sequentially(system, None, AvailableProcessors())
-    val log = ActorLog(system, classOf[OptimiseSubscribe])
-    apply(sequentially, log)(system.dispatcher)
+  def of[F[_] : Concurrent : Par]: F[OptimiseSubscribe[F]] = {
+    for {
+      serialMap <- SerialMap.of[F, String, Subscription[F]]
+    } yield {
+      apply(serialMap)
+    }
   }
 
-  def apply(
-    sequentially: Sequentially[String],
-    log: ActorLog)(implicit
-    executor: ExecutionContext
-  ): OptimiseSubscribe = {
-    val map = SequentialMap[String, Subscription](sequentially)
-    apply(map, log)
-  }
+  def apply[F[_] : Sync : Par](serialMap: SerialMap[F, String, Subscription[F]]): OptimiseSubscribe[F] = {
 
-  def apply(
-    map: SequentialMap[String, Subscription],
-    log: ActorLog)(implicit
-    executor: ExecutionContext
-  ): OptimiseSubscribe = {
-
-    new OptimiseSubscribe {
+    new OptimiseSubscribe[F] {
 
       def apply[A](
-        onMsg: OnMsg[A])(
-        subscribe: OnMsg[A] => Unsubscribe)(implicit
+        onMsg: OnMsg[F, A])(
+        subscribe: OnMsg[F, A] => Resource[F, Unit])(implicit
         topic: Topic[A]
       ) = {
 
-        val listener = onMsg.asInstanceOf[Listener]
+        import SerialMap.Directive
 
-        val result = map.updateUnit(topic.name) { subscription =>
-          val updated = subscription match {
-            case Some(subscription) => subscription + listener
-            case None               =>
-              val onMsg: OnMsg[A] = (msg: A, sender) => {
-                for {
-                  subscription <- map.getNow(topic.name)
-                  listener <- subscription.listeners
-                } try {
-                  listener(msg, sender)
-                } catch {
-                  case NonFatal(failure) => log.error(s"onMsg failed for $topic: $failure", failure)
-                }
-              }
+        val listener = onMsg.asInstanceOf[Listener[F]]
 
-              val unsubscribe = subscribe(onMsg)
-              Subscription(unsubscribe, listener :: Nel)
+        def update(f: Option[Subscription[F]] => F[Directive[Subscription[F]]]) = {
+          serialMap.update(topic.name)(f)
+        }
+
+        def create = {
+          val onMsg: OnMsg[F, A] = (a: A, sender) => {
+            for {
+              subscription <- serialMap.get(topic.name)
+              _            <- subscription.foldMapM { _.listeners.parFoldMap { listener => listener(a, sender) } }
+            } yield {}
           }
-          MapDirective.update(updated)
+
+          for {
+            a <- subscribe(onMsg).allocated
+          } yield {
+            val (_, unsubscribe) = a
+            Subscription[F](unsubscribe, Nel.of(listener))
+          }
         }
 
-        result.failed.foreach { failure =>
-          log.error(s"failed to subscribe to $topic, $failure", failure)
-        }
-
-        () => {
+        val result = for {
+          _ <- update { subscription =>
+            for {
+              subscription <- subscription.fold {
+                create
+              } { subscription =>
+                (subscription + listener).pure[F]
+              }
+            } yield {
+              Directive.update(subscription)
+            }
+          }
+        } yield {
           val unsubscribe = for {
-            _ <- result
-            _ <- map.updateUnit(topic.name) {
-              case None               => MapDirective.ignore
+            _ <- update {
+              case None               => Directive.remove[Subscription[F]].pure[F]
               case Some(subscription) => subscription - listener match {
-                case Some(subscription) => MapDirective.update(subscription)
-                case None               =>
-                  subscription.unsubscribe()
-                  MapDirective.remove
+                case Some(subscription) => Directive.update(subscription).pure[F]
+                case None               => subscription.unsubscribe as Directive.remove
               }
             }
           } yield {}
-
-          unsubscribe.failed.foreach { failure =>
-            log.error(s"failed to unsubscribe from $topic, $failure", failure)
-          }
+          ((), unsubscribe)
         }
+
+        Resource(result)
       }
     }
   }
 
 
-  final case class Subscription(unsubscribe: Unsubscribe, listeners: Nel[Listener]) {
-    self =>
+  final case class Subscription[F[_]](
+    unsubscribe: F[Unit],
+    listeners: Nel[Listener[F]]
+  ) { self =>
 
-    def +(listener: Listener): Subscription = copy(listeners = listener :: listeners)
+    def +(listener: Listener[F]): Subscription[F] = {
+      copy(listeners = listener :: listeners)
+    }
 
-    def -(listener: Listener): Option[Subscription] = {
+    def -(listener: Listener[F]): Option[Subscription[F]] = {
       val listeners = self.listeners.filter(_ != listener)
-      Nel.opt(listeners).map(listeners => copy(listeners = listeners))
+      for {
+        listeners <- Nel.fromList(listeners)
+      } yield {
+        copy(listeners = listeners)
+      }
     }
   }
 }

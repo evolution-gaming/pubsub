@@ -1,67 +1,89 @@
 package com.evolutiongaming.cluster.pubsub
 
+import akka.actor.ActorPath
 import akka.testkit.TestActors
-import com.evolutiongaming.cluster.pubsub.PubSub.{OnMsg, Unsubscribe}
-import com.evolutiongaming.concurrent.CurrentThreadExecutionContext
-import com.evolutiongaming.concurrent.sequentially.Sequentially
-import com.evolutiongaming.safeakka.actor.ActorLog
-import org.scalatest.{Matchers, WordSpec}
+import cats.effect.concurrent.Ref
+import cats.effect.{Concurrent, IO, Resource, Sync}
+import cats.implicits._
+import cats.temp.par._
+import com.evolutiongaming.cluster.pubsub.IOSuite._
+import com.evolutiongaming.cluster.pubsub.PubSub.OnMsg
+import org.scalatest.{AsyncFunSuite, Matchers}
 
-class OptimiseSubscribeSpec extends WordSpec with ActorSpec with Matchers {
+class OptimiseSubscribeSpec extends AsyncFunSuite with ActorSpec with Matchers {
 
-  "OptimiseSubscribe" should {
+  test("subscribe once and dispatch msgs to all subscribers") {
+    `subscribe once and dispatch msgs to all subscribers`[IO].run()
+  }
 
-    "subscribe once and dispatch msgs to all subscribers" in {
+  private def `subscribe once and dispatch msgs to all subscribers`[F[_] : Concurrent : Par] = {
 
-      val optimiseSubscribe = OptimiseSubscribe(
-        Sequentially.now,
-        ActorLog.empty)(
-        CurrentThreadExecutionContext)
+    type Msg = String
 
-      type Msg = String
+    implicit val topic = Topic[String]
 
-      var msgs = List.empty[Msg]
+    val sender = Resource.make {
+      Sync[F].delay { system.actorOf(TestActors.blackholeProps) }
+    } { actorRef =>
+      Sync[F].delay { system.stop(actorRef) }
+    }
 
-      val sender = system.actorOf(TestActors.blackholeProps)
+    sender.use { sender =>
+      for {
+        optimiseSubscribe <- OptimiseSubscribe.of[F]
+        msgsRef           <- Ref[F].of(Set.empty[Msg])
+        listenersRef      <- Ref[F].of(List.empty[OnMsg[F, Msg]])
+        publish            = (msg: Msg) => for {
+          listeners <- listenersRef.get
+          _         <- listeners.foldMapM { onMsg => onMsg(msg, sender.path) }
 
-      implicit val topic = Topic[String]
+        } yield {}
 
-      var listeners = List.empty[OnMsg[Msg]]
+        subscribe          = (prefix: String) => {
+          val onMsg = (msg: Msg, _: ActorPath) => msgsRef.update { _ + s"$prefix-$msg" }
+          val subscribe = (onMsg: OnMsg[F, Msg]) => {
+            val result = for {
+              _ <- listenersRef.update { onMsg :: _ }
+            } yield {
+              val release = listenersRef.update { _.filter(_ != onMsg) }
+              ((), release)
+            }
+            Resource(result)
+          }
 
-      def publish(msg: Msg) = for {
-        onMsg <- listeners
-      } onMsg(msg, sender.path)
+          for {
+            a <- optimiseSubscribe[Msg](onMsg)(subscribe).allocated
+          } yield {
+            val (_, release) = a
+            release
+          }
+        }
 
-      val subscribe: OnMsg[Msg] => Unsubscribe = (onMsg: OnMsg[Msg]) => {
-        listeners = onMsg :: listeners
-        () => listeners = listeners.filter(_ != onMsg)
+        listeners0        <- listenersRef.get
+        _                 <- publish("0")
+        msgs0             <- msgsRef.get
+        unsubscribe0      <- subscribe("1")
+        listeners1        <- listenersRef.get
+        _                 <- publish("1")
+        msgs1             <- msgsRef.get
+        unsubscribe1      <- subscribe("2")
+        listeners2        <- listenersRef.get
+         _                <- publish("2")
+        msgs2             <- msgsRef.get
+        _                 <- unsubscribe0
+        listeners3        <- listenersRef.get
+        _                 <- unsubscribe1
+        listeners4        <- listenersRef.get
+      } yield {
+        listeners0.size shouldEqual 0
+        msgs0 shouldEqual Set.empty[String]
+        listeners1.size shouldEqual 1
+        msgs1 shouldEqual Set("1-1")
+        listeners2.size shouldEqual 1
+        msgs2 shouldEqual Set("1-2", "2-2", "1-1")
+        listeners3.size shouldEqual 1
+        listeners4.size shouldEqual 0
       }
-
-      def onMsg(prefix: String): OnMsg[Msg] = (msg, _) => msgs = s"$prefix-$msg" :: msgs
-
-      listeners.size shouldEqual 0
-      publish("1")
-      msgs shouldEqual Nil
-
-      val onMsg1 = onMsg("1")
-      val unsubscribe1 = optimiseSubscribe[Msg](onMsg1)(subscribe)
-      listeners.size shouldEqual 1
-
-      publish("2")
-      msgs shouldEqual List("1-2")
-
-      val onMsg2 = onMsg("2")
-      val unsubscribe2 = optimiseSubscribe[Msg](onMsg2)(subscribe)
-      listeners.size shouldEqual 1
-
-      publish("3")
-      msgs shouldEqual List("1-3", "2-3", "1-2")
-
-      unsubscribe1()
-      listeners.size shouldEqual 1
-
-      unsubscribe2()
-      listeners.size shouldEqual 0
     }
   }
 }
