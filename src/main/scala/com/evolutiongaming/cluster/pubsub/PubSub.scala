@@ -220,11 +220,11 @@ object PubSub {
   }
 
 
-  def proxy[F[_] : Sync : FromFuture](ref: ActorRef): PubSub[F] = new PubSub[F] {
+  def proxy[F[_] : Sync : FromFuture](actorRef: ActorRef): PubSub[F] = new PubSub[F] {
 
     def publish[A: Topic : ToBytes](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false) = {
       val sender1 = sender getOrElse ActorRef.noSender
-      Sync[F].delay { sender1.tell(msg, sender1) }
+      Sync[F].delay { actorRef.tell(msg, sender1) }
     }
 
     def subscribe[A: Topic : FromBytes : ClassTag](group: Option[String] = None)(onMsg: OnMsg[F, A]) = {
@@ -234,7 +234,7 @@ object PubSub {
     def topics(timeout: FiniteDuration) = {
       implicit val timeout1 = Timeout(timeout)
       for {
-        a <- FromFuture[F].apply { ref.ask(Mediator.GetTopics).mapTo[Mediator.CurrentTopics] }
+        a <- FromFuture[F].apply { actorRef.ask(Mediator.GetTopics).mapTo[Mediator.CurrentTopics] }
       } yield {
         a.topics
       }
