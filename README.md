@@ -4,21 +4,20 @@
 ### Typesafe layer for DistributedPubSubMediator
 
 ```scala
-trait PubSub {
-  import PubSub._
+trait PubSub[F[_]] {
 
   def publish[A: Topic : ToBytes](
-    msg: A, 
-    sender: Option[ActorRef] = None, 
+    msg: A,
+    sender: Option[ActorRef] = None,
     sendToEachGroup: Boolean = false
-  ): Unit
+  ): F[Unit]
 
   def subscribe[A: Topic : FromBytes : ClassTag](
     group: Option[String] = None)(
-    onMsg: OnMsg[A]
-  ): Unsubscribe
+    onMsg: OnMsg[F, A]
+  ): Resource[F, Unit]
 
-  def topics(timeout: FiniteDuration = 3.seconds): Future[Set[String]]
+  def topics(timeout: FiniteDuration = 3.seconds): F[Set[String]]
 }
 ```
 
@@ -32,5 +31,5 @@ Check `DistributedPubSubMediatorSerializing.scala`
 ```scala
 resolvers += Resolver.bintrayRepo("evolutiongaming", "maven")
 
-libraryDependencies += "com.evolutiongaming" %% "pubsub" % "5.0.0"
+libraryDependencies += "com.evolutiongaming" %% "pubsub" % "6.0.0"
 ```
