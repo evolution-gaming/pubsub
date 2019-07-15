@@ -18,7 +18,7 @@ trait OptimiseSubscribe[F[_]] {
 
 object OptimiseSubscribe {
 
-  def empty[F[_]](): OptimiseSubscribe[F] = new OptimiseSubscribe[F] {
+  def empty[F[_]]: OptimiseSubscribe[F] = new OptimiseSubscribe[F] {
 
     def apply[A: Topic](
       onMsg: OnMsg[F, A])(
@@ -50,11 +50,9 @@ object OptimiseSubscribe {
         topic: Topic[A]
       ) = {
 
-        import SerialMap.Directive
-
         val listener = onMsg.asInstanceOf[Listener[F]]
 
-        def update(f: Option[Subscription[F]] => F[Directive[Subscription[F]]]) = {
+        def update(f: Option[Subscription[F]] => F[Option[Subscription[F]]]) = {
           serialMap.update(topic.name)(f)
         }
 
@@ -83,16 +81,16 @@ object OptimiseSubscribe {
                 (subscription + listener).pure[F]
               }
             } yield {
-              Directive.update(subscription)
+              subscription.some
             }
           }
         } yield {
           val unsubscribe = for {
             _ <- update {
-              case None               => Directive.remove[Subscription[F]].pure[F]
+              case None               => none[Subscription[F]].pure[F]
               case Some(subscription) => subscription - listener match {
-                case Some(subscription) => Directive.update(subscription).pure[F]
-                case None               => subscription.unsubscribe as Directive.remove
+                case Some(subscription) => subscription.some.pure[F]
+                case None               => subscription.unsubscribe as none[Subscription[F]]
               }
             }
           } yield {}
