@@ -1,9 +1,9 @@
 package com.evolutiongaming.cluster.pubsub
 
+import cats.Parallel
 import cats.data.{NonEmptyList => Nel}
 import cats.effect.{Concurrent, Resource, Sync}
 import cats.implicits._
-import cats.temp.par._
 import com.evolutiongaming.cluster.pubsub.CatsHelper._
 import com.evolutiongaming.cluster.pubsub.PubSub.OnMsg
 import com.evolutiongaming.scache.SerialMap
@@ -32,7 +32,7 @@ object OptimiseSubscribe {
   type Listener[F[_]] = OnMsg[F, Any]
 
 
-  def of[F[_] : Concurrent : Par]: F[OptimiseSubscribe[F]] = {
+  def of[F[_] : Concurrent : Parallel]: F[OptimiseSubscribe[F]] = {
     for {
       serialMap <- SerialMap.of[F, String, Subscription[F]]
     } yield {
@@ -40,7 +40,7 @@ object OptimiseSubscribe {
     }
   }
 
-  def apply[F[_] : Sync : Par](serialMap: SerialMap[F, String, Subscription[F]]): OptimiseSubscribe[F] = {
+  def apply[F[_] : Sync : Parallel](serialMap: SerialMap[F, String, Subscription[F]]): OptimiseSubscribe[F] = {
 
     new OptimiseSubscribe[F] {
 
