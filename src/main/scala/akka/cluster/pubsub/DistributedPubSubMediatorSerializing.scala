@@ -14,7 +14,6 @@ import com.evolutiongaming.cluster.pubsub.{PubSub, PubSubMsg}
 import com.evolutiongaming.safeakka.actor.Sender
 import com.evolutiongaming.serialization.{SerializedMsg, SerializedMsgExt}
 
-import scala.compat.Platform
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
@@ -77,7 +76,7 @@ class DistributedPubSubMediatorSerializing(
         val serialize = Future {
           val serializedMsg = serializedMsgExt.toMsg(msg)
           metrics.toBytes(topic, serializedMsg.bytes.length)
-          val pubSubMsg = PubSubMsg(serializedMsg, Platform.currentTime)
+          val pubSubMsg = PubSubMsg(serializedMsg, System.currentTimeMillis())
           result(pubSubMsg)
         } recover { case failure =>
           log.error(failure, s"Failed to serialize ${ msg.getClass.getName } at $topic, sending as is")
@@ -178,7 +177,7 @@ object DistributedPubSubMediatorSerializing {
     }
 
     private def onBytes(serializedMsg: SerializedMsg, timestamp: Long) = {
-      val latency = Platform.currentTime - timestamp
+      val latency = System.currentTimeMillis() - timestamp
       metrics.latency(topic, latency)
       val sender = this.sender()
       val deserialize = Future {

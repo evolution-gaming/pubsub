@@ -4,7 +4,7 @@ import cats.Parallel
 import cats.data.{NonEmptyList => Nel}
 import cats.effect.{Concurrent, Resource, Sync}
 import cats.implicits._
-import com.evolutiongaming.cluster.pubsub.CatsHelper._
+import com.evolutiongaming.catshelper.ParallelHelper._
 import com.evolutiongaming.cluster.pubsub.PubSub.OnMsg
 import com.evolutiongaming.scache.SerialMap
 
