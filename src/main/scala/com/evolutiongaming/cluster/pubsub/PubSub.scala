@@ -9,7 +9,7 @@ import cats.effect.{Resource, Sync}
 import cats.implicits._
 import cats.{Applicative, Id, Monad, ~>}
 import com.codahale.metrics.MetricRegistry
-import com.evolutiongaming.catshelper.EffectHelper._
+import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.{FromFuture, ToFuture, ToTry}
 import com.evolutiongaming.metrics.MetricName
 import com.evolutiongaming.safeakka.actor._
