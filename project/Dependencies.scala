@@ -9,7 +9,7 @@ object Dependencies {
   val `cats-helper`        = "com.evolutiongaming" %% "cats-helper"        % "1.0.4"
   val scache               = "com.evolutiongaming" %% "scache"             % "2.0.1"
   val scalatest            = "org.scalatest"       %% "scalatest"          % "3.0.8"
-  val scalax               = "com.github.t3hnar"   %% "scalax"             % "3.7"
+  val scalax               = "com.github.t3hnar"   %% "scalax"             % "3.8.1"
 
   object Akka {
     private val version = "2.5.25"
