@@ -5,7 +5,7 @@ object Dependencies {
   val `safe-actor`         = "com.evolutiongaming" %% "safe-actor"         % "2.0.7"
   val `akka-serialization` = "com.evolutiongaming" %% "akka-serialization" % "1.0.3"
   val nel                  = "com.evolutiongaming" %% "nel"                % "1.3.4"
-  val `metric-tools`       = "com.evolutiongaming" %% "metric-tools"       % "1.2.5"
+  val `metric-tools`       = "com.evolutiongaming" %% "metric-tools"       % "1.2.6"
   val `cats-helper`        = "com.evolutiongaming" %% "cats-helper"        % "1.0.4"
   val scache               = "com.evolutiongaming" %% "scache"             % "2.0.1"
   val scalatest            = "org.scalatest"       %% "scalatest"          % "3.0.8"
