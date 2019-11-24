@@ -7,12 +7,12 @@ object Dependencies {
   val nel                  = "com.evolutiongaming" %% "nel"                % "1.3.4"
   val `metric-tools`       = "com.evolutiongaming" %% "metric-tools"       % "1.2.6"
   val `cats-helper`        = "com.evolutiongaming" %% "cats-helper"        % "1.1.0"
-  val scache               = "com.evolutiongaming" %% "scache"             % "2.0.2"
+  val scache               = "com.evolutiongaming" %% "scache"             % "2.1.1"
   val scalatest            = "org.scalatest"       %% "scalatest"          % "3.0.8"
   val scalax               = "com.github.t3hnar"   %% "scalax"             % "3.8.1"
 
   object Akka {
-    private val version = "2.5.26"
+    private val version = "2.6.0"
     val Actor        = "com.typesafe.akka" %% "akka-actor"         % version
     val ClusterTools = "com.typesafe.akka" %% "akka-cluster-tools" % version
     val Testkit      = "com.typesafe.akka" %% "akka-testkit"       % version

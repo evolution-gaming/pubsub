@@ -8,7 +8,7 @@ import akka.cluster.pubsub.DistributedPubSubMediator.SendToAll
 import akka.dispatch.Dispatchers
 import akka.routing.RoutingLogic
 import akka.stream.scaladsl.{Sink, Source, SourceQueueWithComplete}
-import akka.stream.{ActorMaterializer, OverflowStrategy, QueueOfferResult}
+import akka.stream.{Materializer, OverflowStrategy, QueueOfferResult}
 import cats.Id
 import com.evolutiongaming.cluster.pubsub.{PubSub, PubSubMsg}
 import com.evolutiongaming.safeakka.actor.Sender
@@ -45,7 +45,7 @@ class DistributedPubSubMediatorSerializing(
       .buffer(bufferSize, strategy)
       .mapAsync(1)(_.serialize)
       .to(selfSink)
-      .run()(ActorMaterializer(namePrefix = Some("serialization")))
+      .run()(Materializer(context.system))
   }
 
   override def publish(path: String, msg: Any, allButSelf: Boolean) = {
@@ -167,7 +167,7 @@ object DistributedPubSubMediatorSerializing {
         .mapAsync(1)(identity)
         .collect { case Some(x) => x }
         .to(selfSink)
-        .run()(ActorMaterializer(namePrefix = Some("deserialization")))
+        .run()(Materializer(context.system))
     }
 
     override def receive = rcvBytes orElse super.receive
