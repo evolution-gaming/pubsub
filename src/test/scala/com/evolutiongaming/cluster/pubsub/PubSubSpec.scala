@@ -8,11 +8,12 @@ import com.evolutiongaming.cluster.pubsub.IOSuite._
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.safeakka.actor.ActorLog
 import com.evolutiongaming.serialization.ToBytesAble
-import org.scalatest.{Matchers, WordSpec}
 
 import scala.concurrent.Await
+import org.scalatest.matchers.should.Matchers
+import org.scalatest.wordspec.AnyWordSpec
 
-class PubSubSpec extends WordSpec with ActorSpec with Matchers {
+class PubSubSpec extends AnyWordSpec with ActorSpec with Matchers {
 
   val topic = "topic"
   val msg = "msg"

@@ -4,11 +4,12 @@ import akka.cluster.pubsub.{DistributedPubSubMediator => Mediator}
 import akka.testkit.{TestActorRef, TestProbe}
 import com.evolutiongaming.cluster.pubsub.LocalPubSub._
 import org.scalatest.concurrent.Eventually
-import org.scalatest.{FlatSpec, Matchers}
 
 import scala.concurrent.duration._
+import org.scalatest.flatspec.AnyFlatSpec
+import org.scalatest.matchers.should.Matchers
 
-class LocalPubSubSpec extends FlatSpec with ActorSpec with Matchers with Eventually {
+class LocalPubSubSpec extends AnyFlatSpec with ActorSpec with Matchers with Eventually {
 
   "LocalPubSub" should "receive Subscribe" in new Scope {
     actor ! Mediator.Subscribe(topic1, probe1.ref)

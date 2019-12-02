@@ -1,10 +1,11 @@
 package com.evolutiongaming.cluster.pubsub
 
 import com.evolutiongaming.serialization.SerializedMsg
-import org.scalatest.{FunSuite, Matchers}
 import scodec.bits.ByteVector
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should.Matchers
 
-class PubSubSerializerSpec extends FunSuite with Matchers {
+class PubSubSerializerSpec extends AnyFunSuite with Matchers {
 
   private val serializer = new PubSubSerializer()
 
