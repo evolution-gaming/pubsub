@@ -6,7 +6,7 @@ import akka.cluster.pubsub.{DistributedPubSubMediatorSerializing, DistributedPub
 import akka.pattern._
 import akka.util.Timeout
 import cats.effect.{Resource, Sync}
-import cats.implicits._
+import cats.syntax.all._
 import cats.{Applicative, Id, Monad, ~>}
 import com.codahale.metrics.MetricRegistry
 import com.evolutiongaming.catshelper.CatsHelper._
