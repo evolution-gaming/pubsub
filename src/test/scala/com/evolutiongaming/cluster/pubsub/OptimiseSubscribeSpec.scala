@@ -1,6 +1,6 @@
 package com.evolutiongaming.cluster.pubsub
 
-import akka.actor.ActorPath
+import akka.actor.{ActorPath, ActorSystem}
 import akka.testkit.TestActors
 import cats.Parallel
 import cats.effect.concurrent.Ref
@@ -14,19 +14,19 @@ import org.scalatest.matchers.should.Matchers
 class OptimiseSubscribeSpec extends AsyncFunSuite with ActorSpec with Matchers {
 
   test("subscribe once and dispatch msgs to all subscribers") {
-    `subscribe once and dispatch msgs to all subscribers`[IO].run()
+    `subscribe once and dispatch msgs to all subscribers`[IO](actorSystem).run()
   }
 
-  private def `subscribe once and dispatch msgs to all subscribers`[F[_] : Concurrent : Parallel] = {
+  private def `subscribe once and dispatch msgs to all subscribers`[F[_]: Concurrent: Parallel](actorSystem: ActorSystem) = {
 
     type Msg = String
 
     implicit val topic = Topic[String]
 
     val sender = Resource.make {
-      Sync[F].delay { system.actorOf(TestActors.blackholeProps) }
+      Sync[F].delay { actorSystem.actorOf(TestActors.blackholeProps) }
     } { actorRef =>
-      Sync[F].delay { system.stop(actorRef) }
+      Sync[F].delay { actorSystem.stop(actorRef) }
     }
 
     sender.use { sender =>
