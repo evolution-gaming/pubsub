@@ -3,15 +3,16 @@ package com.evolutiongaming.cluster.pubsub
 import akka.cluster.pubsub.{DistributedPubSubMediator => Mediator}
 import akka.testkit.TestProbe
 import cats.effect.IO
+import cats.effect.unsafe.implicits.global
 import cats.implicits._
-import com.evolutiongaming.cluster.pubsub.IOSuite._
 import com.evolutiongaming.catshelper.CatsHelper._
+import com.evolutiongaming.cluster.pubsub.IOSuite._
 import com.evolutiongaming.safeakka.actor.ActorLog
 import com.evolutiongaming.serialization.ToBytesAble
-
-import scala.concurrent.Await
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
+
+import scala.concurrent.Await
 
 class PubSubSpec extends AnyWordSpec with ActorSpec with Matchers {
 
@@ -43,7 +44,7 @@ class PubSubSpec extends AnyWordSpec with ActorSpec with Matchers {
     }
 
     "topics" in new Scope {
-      val future = pubSub.topics().toFuture
+      val future = pubSub.topics().unsafeToFuture()
       expectMsg(Mediator.GetTopics)
       val topics = Set("topic")
       lastSender ! Mediator.CurrentTopics(topics)
