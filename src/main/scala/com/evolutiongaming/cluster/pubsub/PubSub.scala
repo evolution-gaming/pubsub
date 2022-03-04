@@ -52,7 +52,7 @@ object PubSub {
       def publish[A: Topic : ToBytes](msg: A, sender: Option[Sender], sendToEachGroup: Boolean) = unit
 
       def subscribe[A: Topic : FromBytes : ClassTag](group: Option[String])(onMsg: OnMsg[F, A]) = {
-        Resource.liftF(unit)
+        Resource.eval(unit)
       }
 
       def topics(timeout: FiniteDuration) = topics1
@@ -87,9 +87,9 @@ object PubSub {
     val log = Sync[F].delay { ActorLog(system, PubSub.getClass) }
 
     for {
-      cluster  <- Resource.liftF(cluster)
+      cluster  <- Resource.eval(cluster)
       actorRef <- actorRef(cluster)
-      log      <- Resource.liftF(log)
+      log      <- Resource.eval(log)
     } yield {
       apply(actorRef, log, system)
     }
