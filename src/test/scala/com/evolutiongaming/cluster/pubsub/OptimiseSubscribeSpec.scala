@@ -3,13 +3,13 @@ package com.evolutiongaming.cluster.pubsub
 import akka.actor.{ActorPath, ActorSystem}
 import akka.testkit.TestActors
 import cats.Parallel
-import cats.effect.concurrent.Ref
 import cats.effect.{Concurrent, IO, Resource, Sync}
 import cats.implicits._
 import com.evolutiongaming.cluster.pubsub.IOSuite._
 import com.evolutiongaming.cluster.pubsub.PubSub.OnMsg
 import org.scalatest.funsuite.AsyncFunSuite
 import org.scalatest.matchers.should.Matchers
+import cats.effect.Ref
 
 class OptimiseSubscribeSpec extends AsyncFunSuite with ActorSpec with Matchers {
 
