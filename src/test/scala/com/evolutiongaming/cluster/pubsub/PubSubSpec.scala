@@ -3,6 +3,7 @@ package com.evolutiongaming.cluster.pubsub
 import akka.cluster.pubsub.{DistributedPubSubMediator => Mediator}
 import akka.testkit.TestProbe
 import cats.effect.IO
+import cats.effect.unsafe.implicits.global
 import cats.implicits._
 import com.evolutiongaming.cluster.pubsub.IOSuite._
 import com.evolutiongaming.catshelper.CatsHelper._

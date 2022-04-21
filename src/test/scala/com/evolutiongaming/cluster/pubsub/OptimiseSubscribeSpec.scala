@@ -3,8 +3,7 @@ package com.evolutiongaming.cluster.pubsub
 import akka.actor.{ActorPath, ActorSystem}
 import akka.testkit.TestActors
 import cats.Parallel
-import cats.effect.concurrent.Ref
-import cats.effect.{Concurrent, IO, Resource, Sync}
+import cats.effect.{Async, IO, Ref, Resource, Sync}
 import cats.implicits._
 import com.evolutiongaming.cluster.pubsub.IOSuite._
 import com.evolutiongaming.cluster.pubsub.PubSub.OnMsg
@@ -17,7 +16,7 @@ class OptimiseSubscribeSpec extends AsyncFunSuite with ActorSpec with Matchers {
     `subscribe once and dispatch msgs to all subscribers`[IO](actorSystem).run()
   }
 
-  private def `subscribe once and dispatch msgs to all subscribers`[F[_]: Concurrent: Parallel](actorSystem: ActorSystem) = {
+  private def `subscribe once and dispatch msgs to all subscribers`[F[_]: Async: Parallel](actorSystem: ActorSystem) = {
 
     type Msg = String
 
