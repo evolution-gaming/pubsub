@@ -2,7 +2,7 @@ package com.evolutiongaming.cluster.pubsub
 
 import cats.Parallel
 import cats.data.{NonEmptyList => Nel}
-import cats.effect.{Async, Resource, Sync}
+import cats.effect.{Async, MonadCancelThrow, Resource}
 import cats.syntax.all._
 import com.evolutiongaming.catshelper.ParallelHelper._
 import com.evolutiongaming.cluster.pubsub.PubSub.OnMsg
@@ -40,7 +40,7 @@ object OptimiseSubscribe {
     }
   }
 
-  def apply[F[_] : Sync: Parallel](serialMap: SerialMap[F, String, Subscription[F]]): OptimiseSubscribe[F] = {
+  def apply[F[_] : MonadCancelThrow: Parallel](serialMap: SerialMap[F, String, Subscription[F]]): OptimiseSubscribe[F] = {
 
     new OptimiseSubscribe[F] {
 
