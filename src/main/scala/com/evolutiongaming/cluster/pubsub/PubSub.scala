@@ -45,7 +45,7 @@ object PubSub {
   def empty[F[_] : Applicative]: PubSub[F] = const(Set.empty[String].pure[F], ().pure[F])
 
 
-  def const[F[_] : Applicative](topics: F[Set[String]], unit: F[Unit]): PubSub[F] = {
+  def const[F[_]](topics: F[Set[String]], unit: F[Unit]): PubSub[F] = {
     val topics1 = topics
     new PubSub[F] {
 
