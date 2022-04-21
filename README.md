@@ -6,6 +6,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellowgreen.svg)](https://opensource.org/licenses/MIT)
 
 
+The library is based on cats-effect 3 since 7.0.0 version, for cats-effect 2.x.x back ports use [series/6.x.x](https://github.com/evolution-gaming/pubsub/tree/series/6.x.x)
+
 ### Typesafe layer for DistributedPubSubMediator
 
 ```scala
@@ -36,5 +38,12 @@ Check `DistributedPubSubMediatorSerializing.scala`
 ```scala
 addSbtPlugin("com.evolution" % "sbt-artifactory-plugin" % "0.0.2")
 
-libraryDependencies += "com.evolutiongaming" %% "pubsub" % "6.0.5"
+libraryDependencies += "com.evolutiongaming" %% "pubsub" % "7.0.0"
 ```
+
+## CHANGELOG
+
+### 7.0.0
+
+##### Upgrades
+- cats-effect 2.5.4 to 3.3.11
