@@ -2,7 +2,7 @@ package com.evolutiongaming.cluster.pubsub
 
 import cats.Parallel
 import cats.effect.{Clock, Concurrent, ContextShift, IO, Timer}
-import com.evolutiongaming.smetrics.MeasureDuration
+import com.evolutiongaming.catshelper.MeasureDuration
 import org.scalatest.Succeeded
 
 import scala.concurrent.duration._

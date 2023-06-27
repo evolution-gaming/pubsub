@@ -6,7 +6,7 @@ import cats.effect.{Concurrent, Resource, Sync}
 import cats.syntax.all._
 import com.evolutiongaming.catshelper.ParallelHelper._
 import com.evolutiongaming.cluster.pubsub.PubSub.OnMsg
-import com.evolutiongaming.scache.SerialMap
+import com.evolution.scache.SerialMap
 
 trait OptimiseSubscribe[F[_]] {
 
@@ -60,7 +60,7 @@ object OptimiseSubscribe {
           val onMsg: OnMsg[F, A] = (a: A, sender) => {
             for {
               subscription <- serialMap.get(topic.name)
-              _            <- subscription.foldMapM { _.listeners.parFoldMap { listener => listener(a, sender) } }
+              _            <- subscription.foldMapM { _.listeners.parFoldMap1 { listener => listener(a, sender) } }
             } yield {}
           }
 
