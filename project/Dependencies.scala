@@ -6,13 +6,13 @@ object Dependencies {
   val `akka-serialization` = "com.evolutiongaming" %% "akka-serialization" % "1.0.4"
   val nel                  = "com.evolutiongaming" %% "nel"                % "1.3.4"
   val `metric-tools`       = "com.evolutiongaming" %% "metric-tools"       % "2.0.0"
-  val `cats-helper`        = "com.evolutiongaming" %% "cats-helper"        % "3.0.1"
-  val scache               = "com.evolutiongaming" %% "scache"             % "4.0.0"
+  val `cats-helper`        = "com.evolutiongaming" %% "cats-helper"        % "3.6.0"
+  val scache               = "com.evolution"       %% "scache"             % "4.6.0"
   val scalatest            = "org.scalatest"       %% "scalatest"          % "3.2.3"
   val scalax               = "com.github.t3hnar"   %% "scalax"             % "3.8.1"
 
   object Akka {
-    private val version = "2.6.8"
+    private val version = "2.6.20"
     val Actor        = "com.typesafe.akka" %% "akka-actor"         % version
     val ClusterTools = "com.typesafe.akka" %% "akka-cluster-tools" % version
     val Testkit      = "com.typesafe.akka" %% "akka-testkit"       % version
@@ -25,7 +25,7 @@ object Dependencies {
   }
 
   object Cats {
-    val core   = "org.typelevel" %% "cats-core"   % "2.7.0"
-    val effect = "org.typelevel" %% "cats-effect" % "3.3.11"
+    val core   = "org.typelevel" %% "cats-core"   % "2.9.0"
+    val effect = "org.typelevel" %% "cats-effect" % "3.4.8"
   }
 }
