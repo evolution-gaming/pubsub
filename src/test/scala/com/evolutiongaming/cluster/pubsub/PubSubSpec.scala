@@ -5,7 +5,6 @@ import akka.testkit.TestProbe
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.implicits._
-import com.evolutiongaming.cluster.pubsub.IOSuite._
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.safeakka.actor.ActorLog
 import com.evolutiongaming.serialization.ToBytesAble
