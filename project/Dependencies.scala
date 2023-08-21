@@ -7,7 +7,7 @@ object Dependencies {
   val nel                  = "com.evolutiongaming" %% "nel"                % "1.3.4"
   val `metric-tools`       = "com.evolutiongaming" %% "metric-tools"       % "2.0.0"
   val `cats-helper`        = "com.evolutiongaming" %% "cats-helper"        % "2.12.0"
-  val scache               = "com.evolution"       %% "scache"             % "3.7.2"
+  val scache               = "com.evolution"       %% "scache"             % "3.9.0"
   val scalatest            = "org.scalatest"       %% "scalatest"          % "3.2.3"
   val scalax               = "com.github.t3hnar"   %% "scalax"             % "3.8.1"
 
