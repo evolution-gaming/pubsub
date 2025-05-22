@@ -1,6 +1,6 @@
 package com.evolutiongaming.cluster.pubsub
 
-import akka.actor.{ActorPath, ActorRef, ActorRefFactory, ActorSystem}
+import akka.actor.{Actor, ActorPath, ActorRef, ActorRefFactory, ActorSystem, Props}
 import akka.cluster.Cluster
 import akka.cluster.pubsub.{DistributedPubSubMediatorSerializing, DistributedPubSubMediator => Mediator}
 import akka.pattern._
@@ -12,9 +12,8 @@ import com.codahale.metrics.MetricRegistry
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.{FromFuture, ToFuture, ToTry}
 import com.evolutiongaming.metrics.MetricName
-import com.evolutiongaming.safeakka.actor.{ActorCtx, ActorLog, Behavior, SafeActorRef, SetupActor, Signal, Unapply}
+import com.evolutiongaming.safeakka.actor.{ActorLog, Unapply}
 import com.evolutiongaming.serialization.ToBytesAble
-import scodec.bits.ByteVector
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
@@ -89,7 +88,7 @@ object PubSub {
 
   private class PubSubCluster[F[_]: Sync: ToFuture: FromFuture](pubSub: ActorRef, log: ActorLog, factory: ActorRefFactory) extends PubSub[F] {
     override def publish[A](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false)
-                  (implicit topic: Topic[A], toBytes: ToBytes[A]): F[Unit] = {
+                           (implicit topic: Topic[A], toBytes: ToBytes[A]): F[Unit] = {
 
       val toBytesAble = ToBytesAble(msg)(toBytes.apply)
       val publish = Mediator.Publish(topic.name, toBytesAble, sendToEachGroup)
@@ -101,73 +100,27 @@ object PubSub {
 
     override def subscribe[A](group: Option[String] = None)(onMsg: OnMsg[F, A])
                              (implicit topic: Topic[A], fromBytes: FromBytes[A], tag: ClassTag[A]): Resource[F, Unit] = {
-      import Subscription.In
-
-      def onBytes(bytes: ByteVector, sender: ActorPath) = {
-        for {
-          a <- Sync[F].delay { fromBytes(bytes) }
-          a <- onMsg(a, sender)
-        } yield a
-      }
-
       val onToBytesAble: OnMsg[F, ToBytesAble] = (msg: ToBytesAble, sender: ActorPath) => {
         msg match {
-          case ToBytesAble.Bytes(bytes)  => onBytes(bytes, sender)
+          case ToBytesAble.Bytes(bytes)  =>
+            Sync[F].delay(fromBytes(bytes)).flatMap(onMsg(_, sender))
           case ToBytesAble.Raw(tag(msg)) => onMsg(msg, sender)
           case ToBytesAble.Raw(msg)      => Sync[F].delay { log.warn(s"$topic: receive unexpected $msg") }
         }
       }
-      def subscribe(log: ActorLog): () => Unit = {
-
-        val setup: SetupActor[In[ToBytesAble]] = (ctx: ActorCtx) => {
-
-          implicit val executor = ctx.dispatcher
-
-          def behavior(state: Future[Unit]): Behavior[In[ToBytesAble]] = {
-            Behavior[In[ToBytesAble]] {
-              case Signal.Msg(msg, sender) => msg match {
-                case In.Subscribed   =>
-                  log.debug(s"subscribed ${ ctx.self }")
-                  behavior(state)
-
-                case In.Unsubscribed =>
-                  log.debug(s"unsubscribed ${ ctx.self }")
-                  behavior(state)
-
-                case In.Msg(msg)     =>
-                  log.debug(s"receive $msg")
-                  val fa = onToBytesAble(msg, sender.path).handleErrorWith { error =>
-                    Sync[F].delay { log.error(s"failed to receive $msg: $error", error) }
-                  }
-
-                  val state1 = for {
-                    _ <- state
-                    _ <- fa.toFuture
-                  } yield {}
-                  behavior(state1)
-              }
-              case Signal.PostStop         =>
-                val unsubscribe = Mediator.Unsubscribe(topic.name, group, ctx.self)
-                log.debug(s"unsubscribe $unsubscribe")
-                pubSub.tell(unsubscribe, ctx.self)
-                behavior(state)
-
-              case _                       =>
-                behavior(state)
-            }
-          }
-
-          val logListener = ActorLog(ctx.system, PubSub.getClass) prefixed topic.name
-          (behavior(Future.unit), logListener)
-        }
-
-        val ref: SafeActorRef[In[ToBytesAble]] = SafeActorRef(setup)(factory, Subscription.In.unapplyOf[ToBytesAble])
-        val subscribe = Mediator.Subscribe(topic.name, group, ref.unsafe)
-        log.debug(s"subscribe $subscribe")
-        pubSub.tell(subscribe, ref.unsafe)
-        () => factory.stop(ref.unsafe)
-      }
-      Resource.make { Sync[F].delay(subscribe(log.prefixed(topic.name))) } { i => Sync[F].delay(i()) }.void
+      val logPrefixed = log.prefixed(topic.name)
+      Resource.make(Sync[F].delay {
+        val props = Props(new SubscriberActor(pubSub, group, topic.name)((msg, sender) =>
+          onToBytesAble(msg, sender.path).toFuture
+        ))
+        val ref = factory.actorOf(props)
+        val subscribe = Mediator.Subscribe(topic.name, group, ref)
+        logPrefixed.debug(s"subscribe $subscribe")
+        pubSub.tell(subscribe, ref)
+        ref
+      }) { ref =>
+        Sync[F].delay(factory.stop(ref))
+      }.void
     }
 
     override def topics(timeout: FiniteDuration): F[Set[String]] = {
@@ -175,6 +128,35 @@ object PubSub {
       for {
         a <- FromFuture[F].apply { pubSub.ask(Mediator.GetTopics).mapTo[Mediator.CurrentTopics] }
       } yield a.topics
+    }
+  }
+
+  private class SubscriberActor(pubSub: ActorRef, group: Option[String], topic: String)(handler: (ToBytesAble, ActorRef) => Future[Unit]) extends Actor {
+    import context.dispatcher
+    override def receive: Receive = waitOn(Future.unit)
+    private val log = akka.event.Logging(context.system, this)
+
+    private def waitOn(future: Future[Unit]): Receive = {
+      case _: Mediator.SubscribeAck =>
+        log.debug(s"subscribed ${context.self}")
+      case _: Mediator.UnsubscribeAck =>
+        log.debug(s"unsubscribed ${context.self}")
+      case msg: ToBytesAble =>
+        log.debug(s"receive $msg")
+        val ref = sender()
+        val completeness = future.flatMap { _ =>
+          handler(msg, ref).handleError { error =>
+            log.error(error, s"failed to receive $msg")
+          }
+        }
+        context.become(waitOn(completeness))
+    }
+
+    override def postStop(): Unit = {
+      super.postStop()
+      val unsubscribe = Mediator.Unsubscribe(topic, group, context.self)
+      log.debug(s"unsubscribe $unsubscribe")
+      pubSub.tell(unsubscribe, context.self)
     }
   }
 
