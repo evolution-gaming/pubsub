@@ -13,6 +13,8 @@ import scala.concurrent.Await
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
+import scala.collection.mutable
+
 class PubSubSpec extends AnyWordSpec with ActorSpec with Matchers {
 
   val topic = "topic"
@@ -26,8 +28,18 @@ class PubSubSpec extends AnyWordSpec with ActorSpec with Matchers {
       group <- List(Some("group"), None)
     } {
       s"subscribe, group: $group" in new Scope {
-        val (_, unsubscribe) = pubSub.subscribe[Msg](group) { (_: Msg, _) => ().pure[IO] }.allocated.toTry.get
+        val msgs = mutable.ArrayBuffer[String]()
+        val (_, unsubscribe) = pubSub.subscribe[Msg](group) { (msg: Msg, _) => IO(msgs.addOne(msg)) }.allocated.toTry.get
         val subscriber = expectMsgPF() { case Mediator.Subscribe(`topic`, `group`, ref) => ref }
+
+        subscriber ! ToBytesAble.Raw("msg1")(ToBytes.StrToBytes.apply)
+        Thread.sleep(100)
+        msgs.toVector shouldBe Vector("msg1")
+
+        subscriber ! ToBytesAble.Raw("msg2")(ToBytes.StrToBytes.apply)
+        Thread.sleep(100)
+        msgs.toVector shouldBe Vector("msg1", "msg2")
+
         unsubscribe.toTry.get
         expectMsg(Mediator.Unsubscribe(topic, group, subscriber))
       }
