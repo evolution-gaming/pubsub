@@ -101,7 +101,7 @@ object PubSub {
 
     override def subscribe[A](group: Option[String] = None)(onMsg: OnMsg[F, A])
                              (implicit topic: Topic[A], fromBytes: FromBytes[A], tag: ClassTag[A]): Resource[F, Unit] = {
-      implicit val topicFinal = Topic[ToBytesAble](topic.name)
+      import Subscription.In
 
       def onBytes(bytes: ByteVector, sender: ActorPath) = {
         for {
@@ -117,35 +117,14 @@ object PubSub {
           case ToBytesAble.Raw(msg)      => Sync[F].delay { log.warn(s"$topic: receive unexpected $msg") }
         }
       }
+      def subscribe(log: ActorLog): () => Unit = {
 
-      subscribeRaw[ToBytesAble](group)(onToBytesAble)
-    }
-
-    override def topics(timeout: FiniteDuration): F[Set[String]] = {
-      implicit val timeout1 = Timeout(timeout)
-      for {
-        a <- FromFuture[F].apply { pubSub.ask(Mediator.GetTopics).mapTo[Mediator.CurrentTopics] }
-      } yield a.topics
-    }
-
-    def subscribeRaw[A](
-                         group: Option[String])(
-                         onMsg: OnMsg[F, A],
-                       )(implicit
-                         topic: Topic[A],
-                         tag: ClassTag[A]
-                       ) = {
-
-      import Subscription.In
-
-      def subscribe(log: ActorLog) = {
-
-        val setup: SetupActor[In[A]] = (ctx: ActorCtx) => {
+        val setup: SetupActor[In[ToBytesAble]] = (ctx: ActorCtx) => {
 
           implicit val executor = ctx.dispatcher
 
-          def behavior(state: Future[Unit]): Behavior[In[A]] = {
-            Behavior[In[A]] {
+          def behavior(state: Future[Unit]): Behavior[In[ToBytesAble]] = {
+            Behavior[In[ToBytesAble]] {
               case Signal.Msg(msg, sender) => msg match {
                 case In.Subscribed   =>
                   log.debug(s"subscribed ${ ctx.self }")
@@ -157,7 +136,7 @@ object PubSub {
 
                 case In.Msg(msg)     =>
                   log.debug(s"receive $msg")
-                  val fa = onMsg(msg, sender.path).handleErrorWith { error =>
+                  val fa = onToBytesAble(msg, sender.path).handleErrorWith { error =>
                     Sync[F].delay { log.error(s"failed to receive $msg: $error", error) }
                   }
 
@@ -182,20 +161,20 @@ object PubSub {
           (behavior(Future.unit), logListener)
         }
 
-        val ref: SafeActorRef[In[A]] = SafeActorRef(setup)(factory, Subscription.In.unapplyOf[A])
+        val ref: SafeActorRef[In[ToBytesAble]] = SafeActorRef(setup)(factory, Subscription.In.unapplyOf[ToBytesAble])
         val subscribe = Mediator.Subscribe(topic.name, group, ref.unsafe)
         log.debug(s"subscribe $subscribe")
         pubSub.tell(subscribe, ref.unsafe)
         () => factory.stop(ref.unsafe)
       }
+      Resource.make { Sync[F].delay(subscribe(log.prefixed(topic.name))) } { i => Sync[F].delay(i()) }.void
+    }
 
-      val result = for {
-        unsubscribe <- Sync[F].delay { subscribe(log.prefixed(topic.name)) }
-      } yield {
-        val release = Sync[F].delay { unsubscribe() }
-        ((), release)
-      }
-      Resource(result)
+    override def topics(timeout: FiniteDuration): F[Set[String]] = {
+      implicit val timeout1 = Timeout(timeout)
+      for {
+        a <- FromFuture[F].apply { pubSub.ask(Mediator.GetTopics).mapTo[Mediator.CurrentTopics] }
+      } yield a.topics
     }
   }
 
