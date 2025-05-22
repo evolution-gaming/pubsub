@@ -12,7 +12,7 @@ import com.codahale.metrics.MetricRegistry
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.{FromFuture, ToFuture, ToTry}
 import com.evolutiongaming.metrics.MetricName
-import com.evolutiongaming.safeakka.actor._
+import com.evolutiongaming.safeakka.actor.{ActorLog, Behavior, SafeActorRef, SetupActor, Signal, Unapply}
 import com.evolutiongaming.serialization.ToBytesAble
 import scodec.bits.ByteVector
 
@@ -49,7 +49,7 @@ object PubSub {
     val topics1 = topics
     new PubSub[F] {
 
-      def publish[A: Topic : ToBytes](msg: A, sender: Option[Sender], sendToEachGroup: Boolean) = unit
+      def publish[A: Topic : ToBytes](msg: A, sender: Option[ActorRef], sendToEachGroup: Boolean) = unit
 
       def subscribe[A: Topic : FromBytes : ClassTag](group: Option[String])(onMsg: OnMsg[F, A]) = {
         Resource.eval(unit)
@@ -391,7 +391,7 @@ object PubSub {
     def withOptimiseSubscribe(optimiseSubscribe: OptimiseSubscribe[F]): PubSub[F] = {
       new PubSub[F] {
 
-        def publish[A: Topic : ToBytes](msg: A, sender: Option[Sender], sendToEachGroup: Boolean) = {
+        def publish[A: Topic : ToBytes](msg: A, sender: Option[ActorRef], sendToEachGroup: Boolean) = {
           self.publish(msg, sender, sendToEachGroup)
         }
 

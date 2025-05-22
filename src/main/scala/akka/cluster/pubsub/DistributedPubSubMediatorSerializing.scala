@@ -11,7 +11,6 @@ import akka.stream.scaladsl.{Sink, Source, SourceQueueWithComplete}
 import akka.stream.{Materializer, OverflowStrategy, QueueOfferResult}
 import cats.Id
 import com.evolutiongaming.cluster.pubsub.{PubSub, PubSubMsg}
-import com.evolutiongaming.safeakka.actor.Sender
 import com.evolutiongaming.serialization.{SerializedMsg, SerializedMsgExt}
 
 import scala.concurrent.duration.FiniteDuration
@@ -110,7 +109,7 @@ class DistributedPubSubMediatorSerializing(
   private def ignoreOrSendToDeadLetters(msg: Any) =
     if (settings.sendToDeadLettersWhenNoSubscribers) context.system.deadLetters ! DeadLetter(msg, sender(), context.self)
 
-  case class SerializationTask(topic: String, serialize: Future[(SendToAll, Sender)])
+  case class SerializationTask(topic: String, serialize: Future[(SendToAll, ActorRef)])
 }
 
 object DistributedPubSubMediatorSerializing {
@@ -163,7 +162,7 @@ object DistributedPubSubMediatorSerializing {
 
     private lazy val queue = {
       Source
-        .queue[Future[Option[(AnyRef, Sender)]]](Int.MaxValue, OverflowStrategy.backpressure)
+        .queue[Future[Option[(AnyRef, ActorRef)]]](Int.MaxValue, OverflowStrategy.backpressure)
         .mapAsync(1)(identity)
         .collect { case Some(x) => x }
         .to(selfSink)
