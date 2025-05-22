@@ -12,7 +12,7 @@ import com.codahale.metrics.MetricRegistry
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.{FromFuture, ToFuture, ToTry}
 import com.evolutiongaming.metrics.MetricName
-import com.evolutiongaming.safeakka.actor.{ActorLog, Behavior, SafeActorRef, SetupActor, Signal, Unapply}
+import com.evolutiongaming.safeakka.actor.{ActorCtx, ActorLog, Behavior, SafeActorRef, SetupActor, Signal, Unapply}
 import com.evolutiongaming.serialization.ToBytesAble
 import scodec.bits.ByteVector
 
@@ -60,64 +60,87 @@ object PubSub {
   }
 
 
+  /**
+   * Initializes a cluster-local pubsub. If cluster is not initialized, starts a node-local pubsub.
+   */
   def of[F[_] : Sync : ToTry : ToFuture : FromFuture](
     system: ActorSystem,
     metrics: Metrics[F],
     serialize: String => Boolean = _ => false
   ): Resource[F, PubSub[F]] = {
-
-    val cluster = Sync[F].delay { system hasExtension Cluster }
-
-    def actorRef(cluster: Boolean) = {
-
-      val toTry = new (F ~> Id) {
-        def apply[A](fa: F[A]) = fa.toTry.get
-      }
-
-      val metrics1 = metrics.mapK(toTry)
-
-      val actorRef = Sync[F].delay {
-        if (cluster) DistributedPubSubMediatorSerializing(system, serialize, metrics1)
-        else system.actorOf(LocalPubSub.props)
-      }
-
-      Resource.make(actorRef) { ref => Sync[F].delay { system.stop(ref) } }
+    val toTry: F ~> Id = new (F ~> Id) {
+      def apply[A](fa: F[A]): A = fa.toTry.get
     }
-
-    val log = Sync[F].delay { ActorLog(system, PubSub.getClass) }
-
     for {
-      cluster  <- Resource.eval(cluster)
-      actorRef <- actorRef(cluster)
-      log      <- Resource.eval(log)
+      hasCluster <- Resource.eval(Sync[F].delay(system.hasExtension(Cluster)))
+      actorRef <- {
+        val metrics1 = metrics.mapK(toTry)
+        val actorRef = Sync[F].delay {
+          if (hasCluster) DistributedPubSubMediatorSerializing(system, serialize, metrics1)
+          else            system.actorOf(LocalPubSub.props)
+        }
+        Resource.make(actorRef) { ref => Sync[F].delay { system.stop(ref) } }
+      }
+      log <- Resource.eval(Sync[F].delay(ActorLog(system, PubSub.getClass)))
     } yield {
       apply(actorRef, log, system)
     }
   }
 
+  private class PubSubCluster[F[_]: Sync: ToFuture: FromFuture](pubSub: ActorRef, log: ActorLog, factory: ActorRefFactory) extends PubSub[F] {
+    override def publish[A](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false)
+                  (implicit topic: Topic[A], toBytes: ToBytes[A]): F[Unit] = {
 
-  def apply[F[_] : Sync : ToFuture : FromFuture](pubSub: ActorRef, log: ActorLog, factory: ActorRefFactory): PubSub[F] = {
-
-    def publishRaw[A](msg: A, sender: Option[ActorRef], sendToEachGroup: Boolean)(implicit topic: Topic[A]) = {
-      val publish = Mediator.Publish(topic.name, msg, sendToEachGroup)
+      val toBytesAble = ToBytesAble(msg)(toBytes.apply)
+      val publish = Mediator.Publish(topic.name, toBytesAble, sendToEachGroup)
       Sync[F].delay {
         log.debug(s"publish $publish")
         pubSub.tell(publish, sender getOrElse ActorRef.noSender)
       }
     }
 
+    override def subscribe[A](group: Option[String] = None)(onMsg: OnMsg[F, A])
+                             (implicit topic: Topic[A], fromBytes: FromBytes[A], tag: ClassTag[A]): Resource[F, Unit] = {
+      implicit val topicFinal = Topic[ToBytesAble](topic.name)
+
+      def onBytes(bytes: ByteVector, sender: ActorPath) = {
+        for {
+          a <- Sync[F].delay { fromBytes(bytes) }
+          a <- onMsg(a, sender)
+        } yield a
+      }
+
+      val onToBytesAble: OnMsg[F, ToBytesAble] = (msg: ToBytesAble, sender: ActorPath) => {
+        msg match {
+          case ToBytesAble.Bytes(bytes)  => onBytes(bytes, sender)
+          case ToBytesAble.Raw(tag(msg)) => onMsg(msg, sender)
+          case ToBytesAble.Raw(msg)      => Sync[F].delay { log.warn(s"$topic: receive unexpected $msg") }
+        }
+      }
+
+      subscribeRaw[ToBytesAble](group)(onToBytesAble)
+    }
+
+    override def topics(timeout: FiniteDuration): F[Set[String]] = {
+      implicit val timeout1 = Timeout(timeout)
+      for {
+        a <- FromFuture[F].apply { pubSub.ask(Mediator.GetTopics).mapTo[Mediator.CurrentTopics] }
+      } yield a.topics
+    }
+
     def subscribeRaw[A](
-      group: Option[String])(
-      onMsg: OnMsg[F, A])(implicit
-      topic: Topic[A],
-      tag: ClassTag[A]
-    ) = {
+                         group: Option[String])(
+                         onMsg: OnMsg[F, A],
+                       )(implicit
+                         topic: Topic[A],
+                         tag: ClassTag[A]
+                       ) = {
 
       import Subscription.In
 
       def subscribe(log: ActorLog) = {
 
-        val setup: SetupActor[In[A]] = ctx => {
+        val setup: SetupActor[In[A]] = (ctx: ActorCtx) => {
 
           implicit val executor = ctx.dispatcher
 
@@ -159,7 +182,7 @@ object PubSub {
           (behavior(Future.unit), logListener)
         }
 
-        val ref = SafeActorRef(setup)(factory, Subscription.In.unapplyOf[A])
+        val ref: SafeActorRef[In[A]] = SafeActorRef(setup)(factory, Subscription.In.unapplyOf[A])
         val subscribe = Mediator.Subscribe(topic.name, group, ref.unsafe)
         log.debug(s"subscribe $subscribe")
         pubSub.tell(subscribe, ref.unsafe)
@@ -174,51 +197,11 @@ object PubSub {
       }
       Resource(result)
     }
-
-    new PubSub[F] {
-
-      def publish[A](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false)
-        (implicit topic: Topic[A], toBytes: ToBytes[A]) = {
-
-        val toBytesAble = ToBytesAble(msg)(toBytes.apply)
-        implicit val topic1 = Topic[ToBytesAble](topic.name)
-        publishRaw(toBytesAble, sender, sendToEachGroup)
-      }
-
-      def subscribe[A](group: Option[String] = None)(onMsg: OnMsg[F, A])
-        (implicit topic: Topic[A], fromBytes: FromBytes[A], tag: ClassTag[A]) = {
-
-        implicit val topicFinal = Topic[ToBytesAble](topic.name)
-
-        def onBytes(bytes: ByteVector, sender: ActorPath) = {
-          for {
-            a <- Sync[F].delay { fromBytes(bytes) }
-            a <- onMsg(a, sender)
-          } yield a
-        }
-
-        val onToBytesAble: OnMsg[F, ToBytesAble] = (msg: ToBytesAble, sender: ActorPath) => {
-          msg match {
-            case ToBytesAble.Bytes(bytes)  => onBytes(bytes, sender)
-            case ToBytesAble.Raw(tag(msg)) => onMsg(msg, sender)
-            case ToBytesAble.Raw(msg)      => Sync[F].delay { log.warn(s"$topic: receive unexpected $msg") }
-          }
-        }
-
-        subscribeRaw(group)(onToBytesAble)
-      }
-
-      def topics(timeout: FiniteDuration) = {
-        implicit val timeout1 = Timeout(timeout)
-        for {
-          a <- FromFuture[F].apply { pubSub.ask(Mediator.GetTopics).mapTo[Mediator.CurrentTopics] }
-        } yield {
-          a.topics
-        }
-      }
-    }
   }
 
+  def apply[F[_] : Sync : ToFuture : FromFuture](pubSub: ActorRef, log: ActorLog, factory: ActorRefFactory): PubSub[F] = {
+    new PubSubCluster[F](pubSub, log, factory)
+  }
 
   def proxy[F[_] : Sync : FromFuture](actorRef: ActorRef): PubSub[F] = new PubSub[F] {
 
