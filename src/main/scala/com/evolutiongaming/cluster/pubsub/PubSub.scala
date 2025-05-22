@@ -10,9 +10,8 @@ import cats.syntax.all._
 import cats.{Applicative, Id, Monad, ~>}
 import com.codahale.metrics.MetricRegistry
 import com.evolutiongaming.catshelper.CatsHelper._
-import com.evolutiongaming.catshelper.{FromFuture, ToFuture, ToTry}
+import com.evolutiongaming.catshelper.{FromFuture, Log, LogOf, ToFuture, ToTry}
 import com.evolutiongaming.metrics.MetricName
-import com.evolutiongaming.safeakka.actor.{ActorLog, Unapply}
 import com.evolutiongaming.serialization.ToBytesAble
 
 import scala.concurrent.Future
@@ -62,7 +61,7 @@ object PubSub {
   /**
    * Initializes a cluster-local pubsub. If cluster is not initialized, starts a node-local pubsub.
    */
-  def of[F[_] : Sync : ToTry : ToFuture : FromFuture](
+  def of[F[_] : Sync : ToTry : ToFuture : FromFuture : LogOf](
     system: ActorSystem,
     metrics: Metrics[F],
     serialize: String => Boolean = _ => false
@@ -80,22 +79,22 @@ object PubSub {
         }
         Resource.make(actorRef) { ref => Sync[F].delay { system.stop(ref) } }
       }
-      log <- Resource.eval(Sync[F].delay(ActorLog(system, PubSub.getClass)))
+      log <- Resource.eval(LogOf[F].apply(classOf[PubSubCluster[F]]))
     } yield {
       apply(actorRef, log, system)
     }
   }
 
-  private class PubSubCluster[F[_]: Sync: ToFuture: FromFuture](pubSub: ActorRef, log: ActorLog, factory: ActorRefFactory) extends PubSub[F] {
+  private class PubSubCluster[F[_]: Sync: ToFuture: FromFuture](pubSub: ActorRef, log: Log[F], factory: ActorRefFactory) extends PubSub[F] {
     override def publish[A](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false)
                            (implicit topic: Topic[A], toBytes: ToBytes[A]): F[Unit] = {
 
       val toBytesAble = ToBytesAble(msg)(toBytes.apply)
       val publish = Mediator.Publish(topic.name, toBytesAble, sendToEachGroup)
-      Sync[F].delay {
-        log.debug(s"publish $publish")
-        pubSub.tell(publish, sender getOrElse ActorRef.noSender)
-      }
+      for {
+        _ <- log.debug(s"publish $publish")
+        _ <- Sync[F].delay(pubSub.tell(publish, sender getOrElse ActorRef.noSender))
+      } yield ()
     }
 
     override def subscribe[A](group: Option[String] = None)(onMsg: OnMsg[F, A])
@@ -105,22 +104,24 @@ object PubSub {
           case ToBytesAble.Bytes(bytes)  =>
             Sync[F].delay(fromBytes(bytes)).flatMap(onMsg(_, sender))
           case ToBytesAble.Raw(tag(msg)) => onMsg(msg, sender)
-          case ToBytesAble.Raw(msg)      => Sync[F].delay { log.warn(s"$topic: receive unexpected $msg") }
+          case ToBytesAble.Raw(msg)      => log.warn(s"$topic: receive unexpected $msg")
         }
       }
       val logPrefixed = log.prefixed(topic.name)
-      Resource.make(Sync[F].delay {
-        val props = Props(new SubscriberActor(pubSub, group, topic.name)((msg, sender) =>
-          onToBytesAble(msg, sender.path).toFuture
-        ))
-        val ref = factory.actorOf(props)
-        val subscribe = Mediator.Subscribe(topic.name, group, ref)
-        logPrefixed.debug(s"subscribe $subscribe")
-        pubSub.tell(subscribe, ref)
-        ref
-      }) { ref =>
-        Sync[F].delay(factory.stop(ref))
-      }.void
+      for {
+        ref <- Resource.make(Sync[F].delay {
+          val props = Props(new SubscriberActor(pubSub, group, topic.name)((msg, sender) =>
+            onToBytesAble(msg, sender.path).toFuture
+          ))
+          factory.actorOf(props)
+        }) { ref =>
+          Sync[F].delay(factory.stop(ref))
+        }
+        _ <- Resource.eval {
+          val subscribe = Mediator.Subscribe(topic.name, group, ref)
+          logPrefixed.debug(s"subscribe $subscribe") *> Sync[F].delay(pubSub.tell(subscribe, ref))
+        }
+      } yield ()
     }
 
     override def topics(timeout: FiniteDuration): F[Set[String]] = {
@@ -160,7 +161,7 @@ object PubSub {
     }
   }
 
-  def apply[F[_] : Sync : ToFuture : FromFuture](pubSub: ActorRef, log: ActorLog, factory: ActorRefFactory): PubSub[F] = {
+  def apply[F[_] : Sync : ToFuture : FromFuture](pubSub: ActorRef, log: Log[F], factory: ActorRefFactory): PubSub[F] = {
     new PubSubCluster[F](pubSub, log, factory)
   }
 
@@ -186,21 +187,10 @@ object PubSub {
   }
 
 
+  @deprecated("Not used anymore", "2025-05-23")
   object Subscription {
-
     sealed trait In[+A]
-
     object In {
-
-      def unapplyOf[A](implicit tag: ClassTag[A]): Unapply[In[A]] = Unapply.pf[In[A]] {
-        case In.Msg(tag(x))             => In.Msg(x)
-        case _: Mediator.SubscribeAck   => In.Subscribed
-        case _: Mediator.UnsubscribeAck => In.Unsubscribed
-        case In.Subscribed              => In.Subscribed
-        case In.Unsubscribed            => In.Unsubscribed
-        case tag(x)                     => In.Msg(x)
-      }
-
       final case class Msg[+A](msg: A) extends In[A]
       case object Subscribed extends In[Nothing]
       case object Unsubscribed extends In[Nothing]

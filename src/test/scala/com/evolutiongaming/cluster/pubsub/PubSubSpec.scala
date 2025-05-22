@@ -5,7 +5,7 @@ import akka.testkit.TestProbe
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import com.evolutiongaming.catshelper.CatsHelper._
-import com.evolutiongaming.safeakka.actor.ActorLog
+import com.evolutiongaming.catshelper.LogOf
 import com.evolutiongaming.serialization.ToBytesAble
 
 import scala.concurrent.Await
@@ -65,6 +65,7 @@ class PubSubSpec extends AnyWordSpec with ActorSpec with Matchers {
   private trait Scope extends ActorScope {
     val probe = TestProbe()
     def ref = probe.ref
-    val pubSub = PubSub[IO](testActor, ActorLog.empty, system)
+    val log = LogOf.slf4j[IO].unsafeRunSync().apply(getClass).unsafeRunSync()
+    val pubSub = PubSub[IO](testActor, log, system)
   }
 }
