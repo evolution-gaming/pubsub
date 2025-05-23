@@ -187,7 +187,7 @@ object PubSub {
   }
 
 
-  @deprecated("Not used anymore", "2025-05-23")
+  @deprecated("Not used anymore", "10.0.0")
   object Subscription {
     sealed trait In[+A]
     object In {
