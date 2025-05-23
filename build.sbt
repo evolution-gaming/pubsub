@@ -14,7 +14,7 @@ organizationHomepage := Some(url("https://evolution.com"))
 
 scalaVersion := crossScalaVersions.value.head
 
-crossScalaVersions := Seq("2.13.5")
+crossScalaVersions := Seq("2.13.16")
 
 publishTo := Some(Resolver.evolutionReleases)
 
@@ -35,6 +35,11 @@ libraryDependencies ++= Seq(
   scalatest % Test)
 
 licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT")))
+
+scalacOptions ++= Seq(
+  "-release:17",
+  "-deprecation",
+)
 
 Compile / doc / scalacOptions ++= Seq("-groups", "-implicits", "-no-link-warnings")
 
