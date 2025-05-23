@@ -37,8 +37,6 @@ libraryDependencies ++= Seq(
 
 licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT")))
 
-releaseCrossBuild := true
-
 Compile / doc / scalacOptions ++= Seq("-groups", "-implicits", "-no-link-warnings")
 
 //addCommandAlias("check", "all versionPolicyCheck Compile/doc")
