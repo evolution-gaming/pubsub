@@ -27,7 +27,6 @@ libraryDependencies ++= Seq(
   Scodec.bits,
   Cats.core,
   Cats.effect,
-  `safe-actor`,
   scalax,
   `metric-tools`,
   `akka-serialization`,
