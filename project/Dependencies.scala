@@ -2,7 +2,7 @@ import sbt._
 
 object Dependencies {
 
-  val `akka-serialization` = "com.evolutiongaming" %% "akka-serialization" % "1.0.5"
+  val `akka-serialization` = "com.evolutiongaming" %% "akka-serialization" % "1.1.0"
   val nel                  = "com.evolutiongaming" %% "nel"                % "1.3.5"
   val `metric-tools`       = "com.evolutiongaming" %% "metric-tools"       % "3.0.0"
   val `cats-helper`        = "com.evolutiongaming" %% "cats-helper"        % "3.12.0"
