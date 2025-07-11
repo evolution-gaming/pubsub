@@ -2,30 +2,43 @@ package com.evolutiongaming.cluster.pubsub
 
 import akka.actor._
 import akka.cluster.pubsub.{DistributedPubSubMediator => Mediator}
-import com.github.t3hnar.scalax.RichSetMap
 
 class LocalPubSub extends Actor with ActorLogging {
   import LocalPubSub._
 
   var map: Map[String, Set[ActorRef]] = Map()
 
+  private def getSet(topic: String): Set[ActorRef] =
+    map.getOrElse(topic, Set.empty)
+
+  private def update(
+    map: Map[String, Set[ActorRef]],
+    topic: String,
+    withSet: Set[ActorRef],
+  ): Map[String, Set[ActorRef]] =
+    if (withSet.isEmpty) map.removed(topic)
+    else map.updated(topic, withSet)
+
   def receive: Receive = {
     case Mediator.Publish(topic, msg, _) =>
-      map.getOrEmpty(topic) foreach { x => x forward msg }
+      getSet(topic) foreach { x => x forward msg }
 
     case Mediator.Subscribe(topic, group, ref) =>
-      map = map.updatedSet(topic, _ + ref)
+      val set = getSet(topic) + ref
+      map = update(map, topic, set)
       context watch ref
 
       if (group contains Ack) ref ! Subscribed(topic)
 
     case Mediator.Unsubscribe(topic, _, ref) =>
-      map = map.updatedSet(topic, _ - ref)
+      val set = getSet(topic) - ref
+      map = update(map, topic, set)
 
     case Terminated(ref) =>
       context unwatch ref
-      map = map.keys.foldLeft(map) {
-        (map, topic) => map.updatedSet(topic, _ - ref)
+      map = map.keys.foldLeft(map) { (map, topic) =>
+        val set = getSet(topic) - ref
+        update(map, topic, set)
       }
 
     case GetState => sender() ! State(map)
@@ -45,7 +58,7 @@ object LocalPubSub {
   final case class Subscribed(topic: String)
 
   object Subscribed {
-    def apply(topic: Class[_]): Subscribed = Subscribed(topic.getName)
+    def apply(topic: Class[?]): Subscribed = Subscribed(topic.getName)
   }
 
   private[cluster] case object GetState

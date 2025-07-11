@@ -2,13 +2,11 @@ import sbt._
 
 object Dependencies {
 
-  val `akka-serialization` = "com.evolutiongaming" %% "akka-serialization" % "1.0.5"
-  val nel                  = "com.evolutiongaming" %% "nel"                % "1.3.5"
+  val `akka-serialization` = "com.evolutiongaming" %% "akka-serialization" % "1.1.0"
   val `metric-tools`       = "com.evolutiongaming" %% "metric-tools"       % "3.0.0"
   val `cats-helper`        = "com.evolutiongaming" %% "cats-helper"        % "3.12.0"
   val scache               = "com.evolution"       %% "scache"             % "5.1.2"
   val scalatest            = "org.scalatest"       %% "scalatest"          % "3.2.9"
-  val scalax               = "com.github.t3hnar"   %% "scalax"             % "3.8.1"
 
   object Akka {
     private val version = "2.6.21"
@@ -19,8 +17,13 @@ object Dependencies {
   }
 
   object Scodec {
-    val core = "org.scodec" %% "scodec-core" % "1.11.11"
-    val bits = "org.scodec" %% "scodec-bits" % "1.2.1"
+    val Bits = "org.scodec" %% "scodec-bits" % "1.2.2"
+    object Scala2 {
+      val Core = "org.scodec" %% "scodec-core" % "1.11.11" // the last scodec-core version built for 2.13
+    }
+    object Scala3 {
+      val Core = "org.scodec" %% "scodec-core" % "2.3.2"
+    }
   }
 
   object Cats {
