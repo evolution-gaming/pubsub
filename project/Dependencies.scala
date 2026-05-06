@@ -22,7 +22,7 @@ object Dependencies {
       val Core = "org.scodec" %% "scodec-core" % "1.11.11" // the last scodec-core version built for 2.13
     }
     object Scala3 {
-      val Core = "org.scodec" %% "scodec-core" % "2.3.2"
+      val Core = "org.scodec" %% "scodec-core" % "2.3.3"
     }
   }
 
