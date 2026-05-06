@@ -20,7 +20,7 @@ class OptimiseSubscribeSpec extends AsyncFunSuite with ActorSpec with Matchers {
 
     type Msg = String
 
-    implicit val topic = Topic[String]
+    implicit val topic: Topic[String] = Topic[String]
 
     val sender = Resource.make {
       Sync[F].delay { actorSystem.actorOf(TestActors.blackholeProps) }

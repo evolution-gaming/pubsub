@@ -14,26 +14,23 @@ class PubSubSerializer extends SerializerWithStringManifest {
 
   def identifier: Int = 314261278
 
-  def manifest(x: AnyRef): String = {
+  def manifest(x: AnyRef): String =
     x match {
       case _: PubSubMsg => MsgManifest
-      case _            => illegalArgument(s"Cannot serialize message of ${ x.getClass } in ${ getClass.getName }")
+      case _ => illegalArgument(s"Cannot serialize message of ${ x.getClass } in ${ getClass.getName }")
     }
-  }
 
-  def toBinary(x: AnyRef) = {
+  def toBinary(x: AnyRef) =
     x match {
       case x: PubSubMsg => msgToBinary(x).toByteArray
-      case _            => illegalArgument(s"Cannot serialize message of ${ x.getClass } in ${ getClass.getName }")
+      case _ => illegalArgument(s"Cannot serialize message of ${ x.getClass } in ${ getClass.getName }")
     }
-  }
 
-  def fromBinary(bytes: Array[Byte], manifest: String): AnyRef = {
+  def fromBinary(bytes: Array[Byte], manifest: String): AnyRef =
     manifest match {
       case MsgManifest => msgFromBinary(ByteVector.view(bytes))
-      case _           => notSerializable(s"Cannot deserialize message for manifest $manifest in ${ getClass.getName }")
+      case _ => notSerializable(s"Cannot deserialize message for manifest $manifest in ${ getClass.getName }")
     }
-  }
 
   private def notSerializable(msg: String) = throw new NotSerializableException(msg)
 
