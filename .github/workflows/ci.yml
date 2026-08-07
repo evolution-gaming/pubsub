@@ -11,3 +11,5 @@ jobs:
     secrets: inherit
     with:
       scala_versions: '["2.13.18", "3.3.7"]'
+      # TODO sbt-scalafmt is in plugins.sbt but there is no .scalafmt.conf, so formatting was never checked
+      scalafmt_check: false
