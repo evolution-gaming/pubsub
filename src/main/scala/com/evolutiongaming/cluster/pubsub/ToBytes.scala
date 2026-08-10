@@ -14,7 +14,6 @@ object ToBytes {
   implicit val BytesToBytes: ToBytes[ByteVector] = (value: ByteVector) => value
 }
 
-
 trait FromBytes[A] {
   def apply(bytes: ByteVector): A
 }

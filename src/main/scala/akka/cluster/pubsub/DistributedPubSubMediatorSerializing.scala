@@ -18,14 +18,15 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
 
 /**
-  * Override to be able to serialize/deserialize msgs on PubSub level to offload akka remoting transport.
-  * Serialization performed if there are remote subscribers, once per msg, disregarding the number of subscribers
-  * Deserialization performed on every remote node once per message, disregarding the number of subscribers as well.
-  */
+ * Override to be able to serialize/deserialize msgs on PubSub level to offload akka remoting
+ * transport. Serialization performed if there are remote subscribers, once per msg, disregarding
+ * the number of subscribers Deserialization performed on every remote node once per message,
+ * disregarding the number of subscribers as well.
+ */
 class DistributedPubSubMediatorSerializing(
   settings: DistributedPubSubSettings,
   serialize: String => Boolean,
-  metrics: PubSub.Metrics[Id]
+  metrics: PubSub.Metrics[Id],
 ) extends DistributedPubSubMediator(settings) with DistributedPubSubMediatorSerializing.StreamHelper {
 
   import DistributedPubSubMediatorSerializing._
@@ -89,10 +90,10 @@ class DistributedPubSubMediatorSerializing(
       }
 
       msg match {
-        case _: PubSubMsg                  => forward()
-        case _: SerializedMsg              => forward()
+        case _: PubSubMsg => forward()
+        case _: SerializedMsg => forward()
         case x: AnyRef if serialize(topic) => serializeAndForward(x)
-        case _                             => forward()
+        case _ => forward()
       }
     } else {
       forward()
@@ -107,7 +108,8 @@ class DistributedPubSubMediatorSerializing(
   }
 
   private def ignoreOrSendToDeadLetters(msg: Any) =
-    if (settings.sendToDeadLettersWhenNoSubscribers) context.system.deadLetters ! DeadLetter(msg, sender(), context.self)
+    if (settings.sendToDeadLettersWhenNoSubscribers) context.system.deadLetters !
+      DeadLetter(msg, sender(), context.self)
 
   case class SerializationTask(topic: String, serialize: Future[(SendToAll, ActorRef)])
 }
@@ -119,7 +121,7 @@ object DistributedPubSubMediatorSerializing {
   def props(
     settings: DistributedPubSubSettings,
     serialize: String => Boolean,
-    metrics: PubSub.Metrics[Id]
+    metrics: PubSub.Metrics[Id],
   ): Props = {
 
     def actor = new DistributedPubSubMediatorSerializing(settings, serialize, metrics)
@@ -131,7 +133,7 @@ object DistributedPubSubMediatorSerializing {
     system: ActorSystem,
     serialize: String => Boolean,
     metrics: PubSub.Metrics[Id],
-    name: String = "distributedPubSubMediatorOverride"
+    name: String = "distributedPubSubMediatorOverride",
   ): ActorRef = {
 
     val settings = DistributedPubSubSettings(system)
@@ -144,9 +146,7 @@ object DistributedPubSubMediatorSerializing {
     system.asInstanceOf[ExtendedActorSystem].systemActorOf(props, name)
   }
 
-
   private def toTopic(path: String) = path.split("/").last
-
 
   class TopicSerializing(
     emptyTimeToLive: FiniteDuration,
@@ -203,7 +203,6 @@ object DistributedPubSubMediatorSerializing {
     }
   }
 
-
   trait StreamHelper extends Actor with ActorLogging {
 
     def selfSink[A]: Sink[(A, ActorRef), Future[Done]] = {
@@ -212,12 +211,17 @@ object DistributedPubSubMediatorSerializing {
 
     implicit class SourceQueueWithCompleteOps[A](self: SourceQueueWithComplete[A]) {
 
-      def offerAndLog(elem: A, errorMsg: => String)(implicit ec: ExecutionContext): Unit = {
+      def offerAndLog(
+        elem: A,
+        errorMsg: => String,
+      )(implicit
+        ec: ExecutionContext,
+      ): Unit = {
         self.offer(elem) onComplete {
-          case Success(QueueOfferResult.Enqueued)         =>
+          case Success(QueueOfferResult.Enqueued) =>
           case Success(QueueOfferResult.Failure(failure)) => log.error(failure, errorMsg)
-          case Success(failure)                           => log.error(s"$errorMsg $failure")
-          case Failure(failure)                           => log.error(failure, s"$errorMsg $failure")
+          case Success(failure) => log.error(s"$errorMsg $failure")
+          case Failure(failure) => log.error(failure, s"$errorMsg $failure")
         }
       }
     }

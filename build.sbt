@@ -69,8 +69,10 @@ scalacOptions ++= crossSettings(
 
 Compile / doc / scalacOptions ++= Seq("-groups", "-implicits", "-no-link-warnings")
 
-//addCommandAlias("check", "all versionPolicyCheck Compile/doc")
-addCommandAlias("check", "show version")
+versionPolicyIntention := Compatibility.BinaryCompatible
+
+addCommandAlias("check", "all scalafmtCheckRepo versionPolicyCheck Compile/doc")
+addCommandAlias("fmt", "scalafmtRepo")
 addCommandAlias("build", "+all compile test")
 
 def crossSettings[T](scalaVersion: String, if3: T, if2: T): T = {

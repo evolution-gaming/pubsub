@@ -31,15 +31,16 @@ class OptimiseSubscribeSpec extends AsyncFunSuite with ActorSpec with Matchers {
     sender.use { sender =>
       for {
         optimiseSubscribe <- OptimiseSubscribe.of[F]
-        msgsRef           <- Ref[F].of(Set.empty[Msg])
-        listenersRef      <- Ref[F].of(List.empty[OnMsg[F, Msg]])
-        publish            = (msg: Msg) => for {
-          listeners <- listenersRef.get
-          _         <- listeners.foldMapM { onMsg => onMsg(msg, sender.path) }
+        msgsRef <- Ref[F].of(Set.empty[Msg])
+        listenersRef <- Ref[F].of(List.empty[OnMsg[F, Msg]])
+        publish = (msg: Msg) =>
+          for {
+            listeners <- listenersRef.get
+            _ <- listeners.foldMapM { onMsg => onMsg(msg, sender.path) }
 
-        } yield {}
+          } yield {}
 
-        subscribe          = (prefix: String) => {
+        subscribe = (prefix: String) => {
           val onMsg = (msg: Msg, _: ActorPath) => msgsRef.update { _ + s"$prefix-$msg" }
           val subscribe = (onMsg: OnMsg[F, Msg]) => {
             val result = for {
@@ -59,21 +60,21 @@ class OptimiseSubscribeSpec extends AsyncFunSuite with ActorSpec with Matchers {
           }
         }
 
-        listeners0        <- listenersRef.get
-        _                 <- publish("0")
-        msgs0             <- msgsRef.get
-        unsubscribe0      <- subscribe("1")
-        listeners1        <- listenersRef.get
-        _                 <- publish("1")
-        msgs1             <- msgsRef.get
-        unsubscribe1      <- subscribe("2")
-        listeners2        <- listenersRef.get
-         _                <- publish("2")
-        msgs2             <- msgsRef.get
-        _                 <- unsubscribe0
-        listeners3        <- listenersRef.get
-        _                 <- unsubscribe1
-        listeners4        <- listenersRef.get
+        listeners0 <- listenersRef.get
+        _ <- publish("0")
+        msgs0 <- msgsRef.get
+        unsubscribe0 <- subscribe("1")
+        listeners1 <- listenersRef.get
+        _ <- publish("1")
+        msgs1 <- msgsRef.get
+        unsubscribe1 <- subscribe("2")
+        listeners2 <- listenersRef.get
+        _ <- publish("2")
+        msgs2 <- msgsRef.get
+        _ <- unsubscribe0
+        listeners3 <- listenersRef.get
+        _ <- unsubscribe1
+        listeners4 <- listenersRef.get
       } yield {
         listeners0.size shouldEqual 0
         msgs0 shouldEqual Set.empty[String]
