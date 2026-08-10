@@ -16,6 +16,8 @@ crossScalaVersions := Seq("2.13.18", "3.3.7")
 
 scalaVersion := crossScalaVersions.value.head
 
+versionPolicyIntention := Compatibility.BinaryCompatible
+
 publishTo := Some(Resolver.evolutionReleases)
 
 libraryDependencies ++= Seq(
