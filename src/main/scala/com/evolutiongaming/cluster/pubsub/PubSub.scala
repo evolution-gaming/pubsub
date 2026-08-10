@@ -2,7 +2,7 @@ package com.evolutiongaming.cluster.pubsub
 
 import akka.actor.{Actor, ActorPath, ActorRef, ActorRefFactory, ActorSystem, Props}
 import akka.cluster.Cluster
-import akka.cluster.pubsub.{DistributedPubSubMediatorSerializing, DistributedPubSubMediator => Mediator}
+import akka.cluster.pubsub.{DistributedPubSubMediator => Mediator, DistributedPubSubMediatorSerializing}
 import akka.pattern._
 import akka.util.Timeout
 import cats.effect.{Resource, Sync}
@@ -21,15 +21,16 @@ import scala.reflect.ClassTag
 trait PubSub[F[_]] {
   import PubSub._
 
-  def publish[A: Topic : ToBytes](
+  def publish[A: Topic: ToBytes](
     msg: A,
     sender: Option[ActorRef] = None,
-    sendToEachGroup: Boolean = false
+    sendToEachGroup: Boolean = false,
   ): F[Unit]
 
-  def subscribe[A: Topic : FromBytes : ClassTag](
-    group: Option[String] = None)(
-    onMsg: OnMsg[F, A]
+  def subscribe[A: Topic: FromBytes: ClassTag](
+    group: Option[String] = None,
+  )(
+    onMsg: OnMsg[F, A],
   ): Resource[F, Unit]
 
   def topics(timeout: FiniteDuration = 3.seconds): F[Set[String]]
@@ -39,17 +40,15 @@ object PubSub {
 
   type OnMsg[F[_], -A] = (A, ActorPath) => F[Unit]
 
-
-  def empty[F[_] : Applicative]: PubSub[F] = const(Set.empty[String].pure[F], ().pure[F])
-
+  def empty[F[_]: Applicative]: PubSub[F] = const(Set.empty[String].pure[F], ().pure[F])
 
   def const[F[_]](topics: F[Set[String]], unit: F[Unit]): PubSub[F] = {
     val topics1 = topics
     new PubSub[F] {
 
-      def publish[A: Topic : ToBytes](msg: A, sender: Option[ActorRef], sendToEachGroup: Boolean) = unit
+      def publish[A: Topic: ToBytes](msg: A, sender: Option[ActorRef], sendToEachGroup: Boolean) = unit
 
-      def subscribe[A: Topic : FromBytes : ClassTag](group: Option[String])(onMsg: OnMsg[F, A]) = {
+      def subscribe[A: Topic: FromBytes: ClassTag](group: Option[String])(onMsg: OnMsg[F, A]) = {
         Resource.eval(unit)
       }
 
@@ -57,14 +56,13 @@ object PubSub {
     }
   }
 
-
   /**
    * Initializes a cluster-local pubsub. If cluster is not initialized, starts a node-local pubsub.
    */
-  def of[F[_] : Sync : ToTry : ToFuture : FromFuture : LogOf](
+  def of[F[_]: Sync: ToTry: ToFuture: FromFuture: LogOf](
     system: ActorSystem,
     metrics: Metrics[F],
-    serialize: String => Boolean = _ => false
+    serialize: String => Boolean = _ => false,
   ): Resource[F, PubSub[F]] = {
     val toTry: F ~> Id = new (F ~> Id) {
       def apply[A](fa: F[A]): A = fa.toTry.get
@@ -75,7 +73,7 @@ object PubSub {
         val metrics1 = metrics.mapK(toTry)
         val actorRef = Sync[F].delay {
           if (hasCluster) DistributedPubSubMediatorSerializing(system, serialize, metrics1)
-          else            system.actorOf(LocalPubSub.props)
+          else system.actorOf(LocalPubSub.props)
         }
         Resource.make(actorRef) { ref => Sync[F].delay { system.stop(ref) } }
       }
@@ -85,9 +83,16 @@ object PubSub {
     }
   }
 
-  private class PubSubCluster[F[_]: Sync: ToFuture: FromFuture](pubSub: ActorRef, log: Log[F], factory: ActorRefFactory) extends PubSub[F] {
-    override def publish[A](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false)
-                           (implicit topic: Topic[A], toBytes: ToBytes[A]): F[Unit] = {
+  private class PubSubCluster[F[_]: Sync: ToFuture: FromFuture](pubSub: ActorRef, log: Log[F], factory: ActorRefFactory)
+  extends PubSub[F] {
+    override def publish[A](
+      msg: A,
+      sender: Option[ActorRef] = None,
+      sendToEachGroup: Boolean = false,
+    )(implicit
+      topic: Topic[A],
+      toBytes: ToBytes[A],
+    ): F[Unit] = {
 
       val toBytesAble = ToBytesAble(msg)(toBytes.apply)
       val publish = Mediator.Publish(topic.name, toBytesAble, sendToEachGroup)
@@ -97,21 +102,28 @@ object PubSub {
       } yield ()
     }
 
-    override def subscribe[A](group: Option[String] = None)(onMsg: OnMsg[F, A])
-                             (implicit topic: Topic[A], fromBytes: FromBytes[A], tag: ClassTag[A]): Resource[F, Unit] = {
+    override def subscribe[A](
+      group: Option[String] = None,
+    )(
+      onMsg: OnMsg[F, A],
+    )(implicit
+      topic: Topic[A],
+      fromBytes: FromBytes[A],
+      tag: ClassTag[A],
+    ): Resource[F, Unit] = {
       val onToBytesAble: OnMsg[F, ToBytesAble] = (msg: ToBytesAble, sender: ActorPath) => {
         msg match {
-          case ToBytesAble.Bytes(bytes)  =>
+          case ToBytesAble.Bytes(bytes) =>
             Sync[F].delay(fromBytes(bytes)).flatMap(onMsg(_, sender))
           case ToBytesAble.Raw(tag(msg)) => onMsg(msg, sender)
-          case ToBytesAble.Raw(msg)      => log.warn(s"$topic: receive unexpected $msg")
+          case ToBytesAble.Raw(msg) => log.warn(s"$topic: receive unexpected $msg")
         }
       }
       val logPrefixed = log.prefixed(topic.name)
       for {
         ref <- Resource.make(Sync[F].delay {
           val props = Props(new SubscriberActor(pubSub, group, topic.name)((msg, sender) =>
-            onToBytesAble(msg, sender.path).toFuture
+            onToBytesAble(msg, sender.path).toFuture,
           ))
           factory.actorOf(props)
         }) { ref =>
@@ -132,16 +144,22 @@ object PubSub {
     }
   }
 
-  private class SubscriberActor(pubSub: ActorRef, group: Option[String], topic: String)(handler: (ToBytesAble, ActorRef) => Future[Unit]) extends Actor {
+  private class SubscriberActor(
+    pubSub: ActorRef,
+    group: Option[String],
+    topic: String,
+  )(
+    handler: (ToBytesAble, ActorRef) => Future[Unit],
+  ) extends Actor {
     import context.dispatcher
     override def receive: Receive = waitOn(Future.unit)
     private val log = akka.event.Logging(context.system, this)
 
     private def waitOn(future: Future[Unit]): Receive = {
       case _: Mediator.SubscribeAck =>
-        log.debug(s"subscribed ${context.self}")
+        log.debug(s"subscribed ${ context.self }")
       case _: Mediator.UnsubscribeAck =>
-        log.debug(s"unsubscribed ${context.self}")
+        log.debug(s"unsubscribed ${ context.self }")
       case msg: ToBytesAble =>
         log.debug(s"receive $msg")
         val ref = sender()
@@ -161,18 +179,18 @@ object PubSub {
     }
   }
 
-  def apply[F[_] : Sync : ToFuture : FromFuture](pubSub: ActorRef, log: Log[F], factory: ActorRefFactory): PubSub[F] = {
+  def apply[F[_]: Sync: ToFuture: FromFuture](pubSub: ActorRef, log: Log[F], factory: ActorRefFactory): PubSub[F] = {
     new PubSubCluster[F](pubSub, log, factory)
   }
 
-  def proxy[F[_] : Sync : FromFuture](actorRef: ActorRef): PubSub[F] = new PubSub[F] {
+  def proxy[F[_]: Sync: FromFuture](actorRef: ActorRef): PubSub[F] = new PubSub[F] {
 
-    def publish[A: Topic : ToBytes](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false) = {
+    def publish[A: Topic: ToBytes](msg: A, sender: Option[ActorRef] = None, sendToEachGroup: Boolean = false) = {
       val sender1 = sender getOrElse ActorRef.noSender
       Sync[F].delay { actorRef.tell(msg, sender1) }
     }
 
-    def subscribe[A: Topic : FromBytes : ClassTag](group: Option[String] = None)(onMsg: OnMsg[F, A]) = {
+    def subscribe[A: Topic: FromBytes: ClassTag](group: Option[String] = None)(onMsg: OnMsg[F, A]) = {
       Resource.pure[F, Unit](())
     }
 
@@ -186,7 +204,6 @@ object PubSub {
     }
   }
 
-
   @deprecated("Not used anymore", "10.0.0")
   object Subscription {
     sealed trait In[+A]
@@ -196,7 +213,6 @@ object PubSub {
       case object Unsubscribed extends In[Nothing]
     }
   }
-
 
   trait Metrics[F[_]] {
 
@@ -215,8 +231,7 @@ object PubSub {
 
   object Metrics {
 
-    def empty[F[_] : Applicative]: Metrics[F] = const(().pure[F])
-
+    def empty[F[_]: Applicative]: Metrics[F] = const(().pure[F])
 
     def const[F[_]](unit: F[Unit]): Metrics[F] = new Metrics[F] {
 
@@ -233,8 +248,7 @@ object PubSub {
       def latency(topic: String, latencyMs: Long) = unit
     }
 
-
-    def codahale[F[_] : Sync](registry: MetricRegistry): F[Metrics[F]] = {
+    def codahale[F[_]: Sync](registry: MetricRegistry): F[Metrics[F]] = {
 
       def nameOf(topic: String) = Sync[F].delay { MetricName(topic) }
 
@@ -245,8 +259,8 @@ object PubSub {
       val latencyHistogram = Sync[F].delay { registry.histogram("latency") }
 
       for {
-        toBytesMeter     <- toBytesMeter
-        fromBytesMeter   <- fromBytesMeter
+        toBytesMeter <- toBytesMeter
+        fromBytesMeter <- fromBytesMeter
         latencyHistogram <- latencyHistogram
       } yield {
         new Metrics[F] {
@@ -254,51 +268,50 @@ object PubSub {
           def subscribe(topic: String) = {
             for {
               name <- nameOf(topic)
-              _    <- Sync[F].delay { registry.counter(s"$name.subscriptions").inc() }
+              _ <- Sync[F].delay { registry.counter(s"$name.subscriptions").inc() }
             } yield {}
           }
 
           def unsubscribe(topic: String) = {
             for {
               name <- nameOf(topic)
-              _    <- Sync[F].delay { registry.counter(s"$name.subscriptions").dec() }
+              _ <- Sync[F].delay { registry.counter(s"$name.subscriptions").dec() }
             } yield {}
           }
 
           def publish(topic: String) = {
             for {
               name <- nameOf(topic)
-              _    <- Sync[F].delay { registry.meter(s"$name.publish").mark() }
+              _ <- Sync[F].delay { registry.meter(s"$name.publish").mark() }
             } yield {}
           }
 
           def toBytes(topic: String, size: Long) = {
             for {
               name <- nameOf(topic)
-              _    <- Sync[F].delay { toBytesMeter.mark(size) }
-              _    <- Sync[F].delay { registry.meter(s"$name.toBytes").mark(size) }
+              _ <- Sync[F].delay { toBytesMeter.mark(size) }
+              _ <- Sync[F].delay { registry.meter(s"$name.toBytes").mark(size) }
             } yield {}
           }
 
           def fromBytes(topic: String, size: Long) = {
             for {
               name <- nameOf(topic)
-              _    <- Sync[F].delay { fromBytesMeter.mark(size) }
-              _    <- Sync[F].delay { registry.meter(s"$name.fromBytes").mark(size) }
+              _ <- Sync[F].delay { fromBytesMeter.mark(size) }
+              _ <- Sync[F].delay { registry.meter(s"$name.fromBytes").mark(size) }
             } yield {}
           }
 
           def latency(topic: String, latencyMs: Long) = {
             for {
               name <- nameOf(topic)
-              _    <- Sync[F].delay { latencyHistogram.update(latencyMs) }
-              _    <- Sync[F].delay { registry.histogram(s"$name.latency").update(latencyMs) }
+              _ <- Sync[F].delay { latencyHistogram.update(latencyMs) }
+              _ <- Sync[F].delay { registry.histogram(s"$name.latency").update(latencyMs) }
             } yield {}
           }
         }
       }
     }
-
 
     implicit class MetricsOps[F[_]](val self: Metrics[F]) extends AnyVal {
 
@@ -319,17 +332,16 @@ object PubSub {
     }
   }
 
-
   implicit class PubSubOps[F[_]](val self: PubSub[F]) extends AnyVal {
 
     def withOptimiseSubscribe(optimiseSubscribe: OptimiseSubscribe[F]): PubSub[F] = {
       new PubSub[F] {
 
-        def publish[A: Topic : ToBytes](msg: A, sender: Option[ActorRef], sendToEachGroup: Boolean) = {
+        def publish[A: Topic: ToBytes](msg: A, sender: Option[ActorRef], sendToEachGroup: Boolean) = {
           self.publish(msg, sender, sendToEachGroup)
         }
 
-        def subscribe[A: Topic : FromBytes : ClassTag](group: Option[String])(onMsg: OnMsg[F, A]) = {
+        def subscribe[A: Topic: FromBytes: ClassTag](group: Option[String])(onMsg: OnMsg[F, A]) = {
           optimiseSubscribe[A](onMsg) { onMsg =>
             self.subscribe[A](group)(onMsg)
           }
@@ -339,17 +351,21 @@ object PubSub {
       }
     }
 
-
-    def withMetrics(metrics: Metrics[F])(implicit F: Monad[F]): PubSub[F] = {
+    def withMetrics(
+      metrics: Metrics[F],
+    )(implicit
+      F: Monad[F],
+    ): PubSub[F] = {
 
       new PubSub[F] {
 
         def publish[A](
           msg: A,
           sender: Option[ActorRef] = None,
-          sendToEachGroup: Boolean = false)(implicit
+          sendToEachGroup: Boolean = false,
+        )(implicit
           topic: Topic[A],
-          toBytes: ToBytes[A]
+          toBytes: ToBytes[A],
         ) = {
           for {
             a <- self.publish(msg, sender, sendToEachGroup)
@@ -358,11 +374,13 @@ object PubSub {
         }
 
         def subscribe[A](
-          group: Option[String] = None)(
-          onMsg: OnMsg[F, A])(implicit
+          group: Option[String] = None,
+        )(
+          onMsg: OnMsg[F, A],
+        )(implicit
           topic: Topic[A],
           fromBytes: FromBytes[A],
-          tag: ClassTag[A]
+          tag: ClassTag[A],
         ) = {
 
           val name = topic.name

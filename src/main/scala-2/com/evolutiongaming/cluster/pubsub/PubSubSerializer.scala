@@ -1,11 +1,11 @@
 package com.evolutiongaming.cluster.pubsub
 
-import java.io.NotSerializableException
-
 import akka.serialization.SerializerWithStringManifest
 import com.evolutiongaming.serialization.SerializedMsg
 import scodec.bits.ByteVector
 import scodec.codecs._
+
+import java.io.NotSerializableException
 
 class PubSubSerializer extends SerializerWithStringManifest {
   import PubSubSerializer._

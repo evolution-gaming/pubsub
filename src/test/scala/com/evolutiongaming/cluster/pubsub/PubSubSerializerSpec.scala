@@ -1,9 +1,9 @@
 package com.evolutiongaming.cluster.pubsub
 
 import com.evolutiongaming.serialization.SerializedMsg
-import scodec.bits.ByteVector
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
+import scodec.bits.ByteVector
 
 class PubSubSerializerSpec extends AnyFunSuite with Matchers {
 

@@ -3,17 +3,17 @@ import sbt._
 object Dependencies {
 
   val `akka-serialization` = "com.evolutiongaming" %% "akka-serialization" % "1.1.0"
-  val `metric-tools`       = "com.evolutiongaming" %% "metric-tools"       % "3.0.0"
-  val `cats-helper`        = "com.evolutiongaming" %% "cats-helper"        % "3.12.2"
-  val scache               = "com.evolution"       %% "scache"             % "6.0.1"
-  val scalatest            = "org.scalatest"       %% "scalatest"          % "3.2.20"
+  val `metric-tools` = "com.evolutiongaming" %% "metric-tools" % "3.0.0"
+  val `cats-helper` = "com.evolutiongaming" %% "cats-helper" % "3.12.2"
+  val scache = "com.evolution" %% "scache" % "6.0.1"
+  val scalatest = "org.scalatest" %% "scalatest" % "3.2.20"
 
   object Akka {
     private val version = "2.6.21"
-    val Actor        = "com.typesafe.akka" %% "akka-actor"         % version
+    val Actor = "com.typesafe.akka" %% "akka-actor" % version
     val ClusterTools = "com.typesafe.akka" %% "akka-cluster-tools" % version
-    val Testkit      = "com.typesafe.akka" %% "akka-testkit"       % version
-    val Stream       = "com.typesafe.akka" %% "akka-stream"        % version
+    val Testkit = "com.typesafe.akka" %% "akka-testkit" % version
+    val Stream = "com.typesafe.akka" %% "akka-stream" % version
   }
 
   object Scodec {
@@ -27,7 +27,7 @@ object Dependencies {
   }
 
   object Cats {
-    val core   = "org.typelevel" %% "cats-core"   % "2.13.0"
+    val core = "org.typelevel" %% "cats-core" % "2.13.0"
     val effect = "org.typelevel" %% "cats-effect" % "3.7.0"
   }
 }

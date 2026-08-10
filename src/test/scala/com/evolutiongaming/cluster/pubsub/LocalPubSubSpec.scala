@@ -4,10 +4,10 @@ import akka.cluster.pubsub.{DistributedPubSubMediator => Mediator}
 import akka.testkit.{TestActorRef, TestProbe}
 import com.evolutiongaming.cluster.pubsub.LocalPubSub._
 import org.scalatest.concurrent.Eventually
-
-import scala.concurrent.duration._
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
+
+import scala.concurrent.duration._
 
 class LocalPubSubSpec extends AnyFlatSpec with ActorSpec with Matchers with Eventually {
 

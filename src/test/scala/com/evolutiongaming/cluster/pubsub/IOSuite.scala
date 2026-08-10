@@ -1,7 +1,7 @@
 package com.evolutiongaming.cluster.pubsub
 
-import cats.effect.{Clock, IO}
 import cats.effect.unsafe.implicits.global
+import cats.effect.{Clock, IO}
 import com.evolutiongaming.catshelper.MeasureDuration
 import org.scalatest.Succeeded
 

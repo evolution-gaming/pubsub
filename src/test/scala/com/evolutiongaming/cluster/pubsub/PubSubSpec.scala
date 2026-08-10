@@ -7,12 +7,11 @@ import cats.effect.unsafe.implicits.global
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.LogOf
 import com.evolutiongaming.serialization.ToBytesAble
-
-import scala.concurrent.Await
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import scala.collection.mutable
+import scala.concurrent.Await
 
 class PubSubSpec extends AnyWordSpec with ActorSpec with Matchers {
 
@@ -28,7 +27,9 @@ class PubSubSpec extends AnyWordSpec with ActorSpec with Matchers {
     } {
       s"subscribe, group: $group" in new Scope {
         val msgs = mutable.ArrayBuffer[String]()
-        val (_, unsubscribe) = pubSub.subscribe[Msg](group) { (msg: Msg, _) => IO(msgs.addOne(msg)) }.allocated.toTry.get
+        val (_, unsubscribe) = pubSub.subscribe[Msg](group) { (msg: Msg, _) =>
+          IO(msgs.addOne(msg))
+        }.allocated.toTry.get
         val subscriber = expectMsgPF() { case Mediator.Subscribe(`topic`, `group`, ref) => ref }
 
         subscriber ! ToBytesAble.Raw("msg1")(ToBytes.StrToBytes.apply)
