@@ -4,13 +4,13 @@ name := "pubsub"
 
 organization := "com.evolutiongaming"
 
-homepage := Some(url("https://github.com/evolution-gaming/pubsub"))
+homepage := Some(uri("https://github.com/evolution-gaming/pubsub"))
 
 startYear := Some(2017)
 
 organizationName := "Evolution"
 
-organizationHomepage := Some(url("https://evolution.com"))
+organizationHomepage := Some(uri("https://evolution.com"))
 
 crossScalaVersions := Seq("2.13.18", "3.3.7")
 
@@ -40,7 +40,7 @@ libraryDependencies ++= crossSettings(
   if3 = Seq(Scodec.Scala3.Core),
 )
 
-licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT")))
+licenses := Seq(("MIT", uri("https://opensource.org/licenses/MIT")))
 
 scalacOptions ++= Seq(
   "-release:17",
@@ -73,7 +73,7 @@ versionPolicyIntention := Compatibility.BinaryCompatible
 
 addCommandAlias("check", "all scalafmtCheckRepo versionPolicyCheck Compile/doc")
 addCommandAlias("fmt", "scalafmtRepo")
-addCommandAlias("build", "+all compile test")
+addCommandAlias("build", "+all compile testFull")
 
 def crossSettings[T](scalaVersion: String, if3: T, if2: T): T = {
   scalaVersion match {
