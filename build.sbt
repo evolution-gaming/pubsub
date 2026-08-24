@@ -73,8 +73,7 @@ versionPolicyIntention := Compatibility.BinaryCompatible
 
 versionPolicyIgnored ++= Seq(
   // add libraries here that are known to be binary compatible, like:
-  // TODO remove after next release, this project doesn't use doobie module
-  "com.evolutiongaming" %% "smetrics",
+//  "com.evolutiongaming" %% "smetrics",
 )
 
 addCommandAlias("check", "all scalafmtCheckRepo versionPolicyCheck Compile/doc")
