@@ -29,6 +29,7 @@ libraryDependencies ++= Seq(
   Cats.core,
   Cats.effect,
   `metric-tools`,
+  `amqp-client`,
   `akka-serialization`,
   `cats-helper`,
   scache,
