@@ -3,7 +3,7 @@ import sbt._
 object Dependencies {
 
   val `akka-serialization` = "com.evolutiongaming" %% "akka-serialization" % "1.1.0"
-  val `metric-tools` = "com.evolutiongaming" %% "metric-tools" % "3.0.1"
+  val `metric-tools` = "com.evolutiongaming" %% "metric-tools" % "3.0.2"
   val `cats-helper` = "com.evolutiongaming" %% "cats-helper" % "3.13.2"
   val scache = "com.evolution" %% "scache" % "6.0.2"
   val `amqp-client` = "com.rabbitmq" % "amqp-client" % "5.37.0"
